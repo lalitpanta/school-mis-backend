@@ -1,0 +1,176 @@
+{
+  "info": {
+    "name": "SchoolMIS Production API",
+    "description": "Postman collection for https://api.benchmarkassociates.com.np. Set token and tenant_id after login.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://api.benchmarkassociates.com.np/v1" },
+    { "key": "token", "value": "" },
+    { "key": "tenant_id", "value": "" },
+    { "key": "tenant_slug", "value": "school-slug" },
+    { "key": "id", "value": "replace-with-id" },
+    { "key": "device_id", "value": "replace-with-device-id" },
+    { "key": "filename", "value": "replace-with-filename" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.response.code >= 200 && pm.response.code < 300) {",
+          "  const data = pm.response.json();",
+          "  if (data.token) pm.collectionVariables.set('token', data.token);",
+          "  if (data.accessToken) pm.collectionVariables.set('token', data.accessToken);",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 Health and Authentication",
+      "item": [
+        { "name": "Health", "request": { "method": "GET", "url": "{{base_url}}/health" } },
+        {
+          "name": "Unified Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"your-password\",\n  \"tenantSlug\": \"{{tenant_slug}}\"\n}" },
+            "url": "{{base_url}}/auth/login"
+          }
+        },
+        { "name": "Admin Login", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"your-password\"\n}" }, "url": "{{base_url}}/auth/admin/login" } },
+        { "name": "Tenant Login", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"tenant@example.com\",\n  \"password\": \"your-password\"\n}" }, "url": "{{base_url}}/auth/tenant/login" } },
+        { "name": "Staff Login", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"staff@example.com\",\n  \"password\": \"your-password\"\n}" }, "url": "{{base_url}}/auth/staff/login" } },
+        { "name": "Current User", "request": { "method": "GET", "url": "{{base_url}}/users/me" } }
+      ]
+    },
+    {
+      "name": "02 Dashboard and Calendar",
+      "item": [
+        { "name": "Dashboard Stats", "request": { "method": "GET", "url": "{{base_url}}/dashboard/stats" } },
+        { "name": "List Years", "request": { "method": "GET", "url": "{{base_url}}/year/getyear" } },
+        { "name": "List Months", "request": { "method": "GET", "url": "{{base_url}}/month/getmonth" } },
+        { "name": "List Days", "request": { "method": "GET", "url": "{{base_url}}/day/getday" } },
+        { "name": "List Day Categories", "request": { "method": "GET", "url": "{{base_url}}/day-category" } },
+        { "name": "Month Calendar AD", "request": { "method": "GET", "url": "{{base_url}}/calendar/month?year=2025&month=5&date_format=AD" } },
+        { "name": "Month Calendar By Weeks", "request": { "method": "GET", "url": "{{base_url}}/calendar/month/weeks?year=2025&month=5&date_format=AD" } },
+        { "name": "BS Month Calendar", "request": { "method": "GET", "url": "{{base_url}}/calendar/bs/month?year=2081&month=2" } },
+        { "name": "BS Month Calendar By Weeks", "request": { "method": "GET", "url": "{{base_url}}/calendar/bs/month/weeks?year=2081&month=2" } },
+        { "name": "Calendar Days By Month", "request": { "method": "GET", "url": "{{base_url}}/calendar-days/month?month_id={{id}}&date_format=BS" } },
+        { "name": "Generate Calendar Days", "request": { "method": "POST", "url": "{{base_url}}/calendar-days/generate?month_id={{id}}" } },
+        { "name": "Assign Day Type", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"day_type_id\": \"{{id}}\"\n}" }, "url": "{{base_url}}/calendar-days/{{id}}/assign-type" } }
+      ]
+    },
+    {
+      "name": "03 People",
+      "item": [
+        { "name": "List Students", "request": { "method": "GET", "url": "{{base_url}}/students" } },
+        { "name": "Get Student", "request": { "method": "GET", "url": "{{base_url}}/students/{{id}}" } },
+        { "name": "Export Students", "request": { "method": "GET", "url": "{{base_url}}/students/export" } },
+        { "name": "List Teachers", "request": { "method": "GET", "url": "{{base_url}}/teachers" } },
+        { "name": "Teacher Options", "request": { "method": "GET", "url": "{{base_url}}/teachers/options" } },
+        { "name": "Get Teacher", "request": { "method": "GET", "url": "{{base_url}}/teachers/{{id}}" } },
+        { "name": "Export Teachers", "request": { "method": "GET", "url": "{{base_url}}/teachers/export" } },
+        { "name": "Download Teacher Document", "request": { "method": "GET", "url": "{{base_url}}/teachers/{{id}}/download/{{filename}}" } },
+        { "name": "List Employees", "request": { "method": "GET", "url": "{{base_url}}/employees" } },
+        { "name": "Employee Options", "request": { "method": "GET", "url": "{{base_url}}/employees/options" } },
+        { "name": "Get Employee", "request": { "method": "GET", "url": "{{base_url}}/employees/{{id}}" } },
+        { "name": "Download Employee Document", "request": { "method": "GET", "url": "{{base_url}}/employees/{{id}}/download/{{filename}}" } }
+      ]
+    },
+    {
+      "name": "04 Academic Structure",
+      "item": [
+        { "name": "List Classes", "request": { "method": "GET", "url": "{{base_url}}/classes" } },
+        { "name": "Get Class", "request": { "method": "GET", "url": "{{base_url}}/classes/{{id}}" } },
+        { "name": "List Sections", "request": { "method": "GET", "url": "{{base_url}}/sections" } },
+        { "name": "Get Section", "request": { "method": "GET", "url": "{{base_url}}/sections/{{id}}" } },
+        { "name": "Sections By Class", "request": { "method": "GET", "url": "{{base_url}}/sections/by-class/{{id}}" } },
+        { "name": "Sections By Room", "request": { "method": "GET", "url": "{{base_url}}/sections/by-room/{{id}}" } },
+        { "name": "List Rooms", "request": { "method": "GET", "url": "{{base_url}}/rooms" } },
+        { "name": "Get Room", "request": { "method": "GET", "url": "{{base_url}}/rooms/{{id}}" } },
+        { "name": "List Departments", "request": { "method": "GET", "url": "{{base_url}}/departments" } },
+        { "name": "List Courses", "request": { "method": "GET", "url": "{{base_url}}/settings/courses" } },
+        { "name": "Get Course", "request": { "method": "GET", "url": "{{base_url}}/settings/courses/{{id}}" } }
+      ]
+    },
+    {
+      "name": "05 Attendance and Leave",
+      "item": [
+        { "name": "Attendance", "request": { "method": "GET", "url": "{{base_url}}/attendance?classId={{id}}&date=2026-08-28" } },
+        { "name": "Attendance Summary", "request": { "method": "GET", "url": "{{base_url}}/attendance/summary" } },
+        { "name": "Attendance History", "request": { "method": "GET", "url": "{{base_url}}/attendance/history" } },
+        { "name": "Submit Attendance", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"classId\": \"{{id}}\",\n  \"date\": \"2026-08-28\",\n  \"records\": []\n}" }, "url": "{{base_url}}/attendance" } },
+        { "name": "Leave Requests", "request": { "method": "GET", "url": "{{base_url}}/leave" } },
+        { "name": "My Leave Requests", "request": { "method": "GET", "url": "{{base_url}}/leave/my" } },
+        { "name": "Request Leave", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"start_date\": \"2026-08-28\",\n  \"end_date\": \"2026-08-29\",\n  \"reason\": \"Personal leave\"\n}" }, "url": "{{base_url}}/leave" } }
+      ]
+    },
+    {
+      "name": "06 Results and Exams",
+      "item": [
+        { "name": "Public Results Lookup", "request": { "method": "GET", "url": "{{base_url}}/results/public?tenantSlug={{tenant_slug}}&rollNo=1&dob=2010-01-01" } },
+        { "name": "Classroom Results", "request": { "method": "GET", "url": "{{base_url}}/results/classroom/{{id}}" } },
+        { "name": "Teacher Classrooms", "request": { "method": "GET", "url": "{{base_url}}/results/teacher/classrooms" } },
+        { "name": "Exam Formats", "request": { "method": "GET", "url": "{{base_url}}/results/exam-formats" } },
+        { "name": "Exam Format By ID", "request": { "method": "GET", "url": "{{base_url}}/results/exam-formats/{{id}}" } },
+        { "name": "Create Exam Format", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"exam_type\": \"First Terminal\",\n  \"class_id\": \"{{id}}\",\n  \"section_id\": \"{{id}}\",\n  \"academic_year_id\": \"{{id}}\",\n  \"term\": \"First Term\",\n  \"pass_mark_percentage\": 40\n}" }, "url": "{{base_url}}/results/exam-formats" } },
+        { "name": "Exam Subjects", "request": { "method": "GET", "url": "{{base_url}}/results/exam-subjects/{{id}}" } },
+        { "name": "Student Marks", "request": { "method": "GET", "url": "{{base_url}}/results/student-marks" } },
+        { "name": "Class Students", "request": { "method": "GET", "url": "{{base_url}}/results/class-students" } },
+        { "name": "Class Courses", "request": { "method": "GET", "url": "{{base_url}}/results/class-courses/{{id}}" } }
+      ]
+    },
+    {
+      "name": "07 Fees, Devices, and Reports",
+      "item": [
+        { "name": "Fee Categories", "request": { "method": "GET", "url": "{{base_url}}/fees/categories" } },
+        { "name": "Fee Structures", "request": { "method": "GET", "url": "{{base_url}}/fees/structures" } },
+        { "name": "Student Fees", "request": { "method": "GET", "url": "{{base_url}}/fees/student-fees" } },
+        { "name": "Fee Receipts", "request": { "method": "GET", "url": "{{base_url}}/fees/receipts" } },
+        { "name": "Fee Dashboard Stats", "request": { "method": "GET", "url": "{{base_url}}/fees/dashboard-stats" } },
+        { "name": "Devices", "request": { "method": "GET", "url": "{{base_url}}/devices" } },
+        { "name": "Device By ID", "request": { "method": "GET", "url": "{{base_url}}/devices/{{device_id}}" } },
+        { "name": "Test Device Connection", "request": { "method": "POST", "url": "{{base_url}}/devices/{{device_id}}/test-connection" } },
+        { "name": "Sync Device Now", "request": { "method": "POST", "url": "{{base_url}}/devices/{{device_id}}/sync-now" } },
+        { "name": "Device Attendance Records", "request": { "method": "GET", "url": "{{base_url}}/devices/{{device_id}}/attendance-records" } },
+        { "name": "Daily Report Templates", "request": { "method": "GET", "url": "{{base_url}}/daily-reports/templates" } },
+        { "name": "Daily Reports", "request": { "method": "GET", "url": "{{base_url}}/daily-reports" } }
+      ]
+    },
+    {
+      "name": "08 Settings, Users, and Notices",
+      "item": [
+        { "name": "All Settings", "request": { "method": "GET", "url": "{{base_url}}/settings" } },
+        { "name": "School Profile", "request": { "method": "GET", "url": "{{base_url}}/settings/school" } },
+        { "name": "Notifications", "request": { "method": "GET", "url": "{{base_url}}/settings/notifications" } },
+        { "name": "Theme", "request": { "method": "GET", "url": "{{base_url}}/settings/theme" } },
+        { "name": "Notices", "request": { "method": "GET", "url": "{{base_url}}/settings/notices" } },
+        { "name": "SMS Configuration", "request": { "method": "GET", "url": "{{base_url}}/settings/sms/config" } },
+        { "name": "SMS Templates", "request": { "method": "GET", "url": "{{base_url}}/settings/sms/templates" } },
+        { "name": "SMS Logs", "request": { "method": "GET", "url": "{{base_url}}/settings/sms/logs" } },
+        { "name": "Audit Logs", "request": { "method": "GET", "url": "{{base_url}}/settings/audit-logs" } },
+        { "name": "Audit Stats", "request": { "method": "GET", "url": "{{base_url}}/settings/audit-stats" } },
+        { "name": "Users", "request": { "method": "GET", "url": "{{base_url}}/users" } },
+        { "name": "Roles", "request": { "method": "GET", "url": "{{base_url}}/roles" } },
+        { "name": "Permissions", "request": { "method": "GET", "url": "{{base_url}}/permissions" } },
+        { "name": "Users With Roles", "request": { "method": "GET", "url": "{{base_url}}/users-with-roles" } }
+      ]
+    },
+    {
+      "name": "09 Super Admin",
+      "item": [
+        { "name": "Super Admin Overview", "request": { "method": "GET", "url": "{{base_url}}/super-admin/overview" } },
+        { "name": "Packages", "request": { "method": "GET", "url": "{{base_url}}/super-admin/packages" } }
+      ]
+    }
+  ]
+}

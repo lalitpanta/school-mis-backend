@@ -1,0 +1,7 @@
+.env
+node_modules/
+/src/generated/prisma
+uploads/*
+!uploads/.gitkeep
+tmp/
+*.log
