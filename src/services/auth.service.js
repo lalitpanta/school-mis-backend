@@ -3,7 +3,6 @@ const bcrypt = require("bcrypt");
 const { v4: uuidv4 } = require("uuid");
 const {
   centralPool,
-  createTenantDatabase,
   initializeTenantDatabase,
   getTenantPool,
   registerTenantConnection,
@@ -30,6 +29,16 @@ function slugify(value) {
 function validateSlug(slug) {
   if (!slug) return false;
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
+}
+
+function normalizeDatabaseName(value) {
+  const databaseName = String(value || "").trim().toLowerCase();
+  if (!/^[a-z][a-z0-9_]{0,62}$/.test(databaseName)) {
+    throw new Error(
+      "Database name must start with a letter and contain only lowercase letters, numbers, or underscores",
+    );
+  }
+  return databaseName;
 }
 
 function normalizeModules(modules) {
@@ -302,6 +311,13 @@ async function createTenant(
   let neonProjectId = null;
 
   try {
+    if (!process.env.NEON_API_KEY) {
+      throw new Error(
+        "NEON_API_KEY is required to create tenant databases on Neon",
+      );
+    }
+
+    databaseName = normalizeDatabaseName(databaseName);
     const normalizedSlug = slugify(slug || name);
     if (!validateSlug(normalizedSlug)) {
       throw new Error(
@@ -359,18 +375,14 @@ async function createTenant(
     const tenantId = uuidv4();
     let tenantConnectionString = null;
 
-    // Create database for tenant
-    if (process.env.NEON_API_KEY) {
-      const neonProject = await createTenantProject({
-        projectName: `${normalizedSlug}-${Date.now()}`,
-        databaseName,
-      });
-      neonProjectId = neonProject.projectId;
-      tenantConnectionString = neonProject.connectionString;
-      registerTenantConnection(tenantId, tenantConnectionString);
-    } else {
-      await createTenantDatabase(databaseName);
-    }
+    // Every tenant gets an isolated Neon project and database.
+    const neonProject = await createTenantProject({
+      projectName: `${normalizedSlug}-${Date.now()}`,
+      databaseName,
+    });
+    neonProjectId = neonProject.projectId;
+    tenantConnectionString = neonProject.connectionString;
+    registerTenantConnection(tenantId, tenantConnectionString);
 
     // Hash password
     const passwordHash = await hashPassword(password);

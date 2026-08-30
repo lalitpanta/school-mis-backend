@@ -12,12 +12,33 @@ function createProjectPayload(projectName, databaseName) {
       name: projectName,
       region_id: process.env.NEON_REGION || "aws-us-east-2",
       pg_version: Number(process.env.NEON_PG_VERSION || 16),
-      database: {
-        name: databaseName,
-        owner_name: process.env.NEON_ROLE_NAME || "neondb_owner",
+      branch: {
+        name: process.env.NEON_BRANCH_NAME || "main",
+        database_name: databaseName,
+        role_name: process.env.NEON_ROLE_NAME || "neondb_owner",
       },
     },
   };
+}
+
+function getConnectionString(project, databaseName) {
+  const connectionUris = project.connection_uris || project.connectionUris || [];
+  const matchingUri = connectionUris.find(
+    (uri) =>
+      uri.database_name === databaseName || uri.databaseName === databaseName,
+  );
+
+  return (
+    matchingUri?.connection_uri ||
+    matchingUri?.connectionUri ||
+    connectionUris[0]?.connection_uri ||
+    connectionUris[0]?.connectionUri ||
+    project.connection_uri ||
+    project.connectionUri ||
+    project.connection_string ||
+    project.connectionString ||
+    null
+  );
 }
 
 async function createTenantProject({ projectName, databaseName }) {
@@ -32,8 +53,10 @@ async function createTenantProject({ projectName, databaseName }) {
     { headers },
   );
   const project = response.data.project || response.data;
-  let connectionString =
-    project.connection_uris?.[0]?.connection_uri || project.connection_uri;
+  let connectionString = getConnectionString(response.data, databaseName);
+  if (!connectionString) {
+    connectionString = getConnectionString(project, databaseName);
+  }
 
   if (!connectionString && project.id) {
     const uriResponse = await neonApi.get(
@@ -46,7 +69,8 @@ async function createTenantProject({ projectName, databaseName }) {
         headers,
       },
     );
-    connectionString = uriResponse.data.connection_uri;
+    connectionString =
+      uriResponse.data.connection_uri || uriResponse.data.connectionUri;
   }
 
   if (!project.id || !connectionString) {
