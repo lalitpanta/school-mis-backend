@@ -11,22 +11,32 @@ const StartServer = require("./startServer");
 const routes = require("../routing/index");
 
 // ── CORS Middleware ────────────────────────────────────────────────
+const allowedOrigins = [
+  "https://mis-frontend-g6g3.onrender.com",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+  "http://localhost:3000",
+  "http://localhost:5000",
+  "http://localhost:5001",
+  ...(process.env.FRONTEND_URL || "")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean),
+];
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL
-      ? process.env.FRONTEND_URL.split(",").map((origin) => origin.trim())
-      : [
-          "http://localhost:5173",
-          "http://localhost:5174",
-          "http://localhost:5175",
-          "http://localhost:3000",
-          "http://localhost:5000",
-          "http://localhost:5001",
-        ],
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ""))) {
+        return callback(null, true);
+      }
+      return callback(new Error("CORS origin is not allowed"));
+    },
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Tenant-ID"],
     credentials: true,
-    optionsSuccessStatus: 200,
+    optionsSuccessStatus: 204,
   }),
 );
 
