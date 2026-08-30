@@ -32,7 +32,9 @@ function validateSlug(slug) {
 }
 
 function normalizeDatabaseName(value) {
-  const databaseName = String(value || "").trim().toLowerCase();
+  const databaseName = String(value || "")
+    .trim()
+    .toLowerCase();
   if (!/^[a-z][a-z0-9_]{0,62}$/.test(databaseName)) {
     throw new Error(
       "Database name must start with a letter and contain only lowercase letters, numbers, or underscores",
