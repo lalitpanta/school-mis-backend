@@ -6,6 +6,9 @@ const useSsl = String(process.env.DB_SSL || "").toLowerCase() === "true";
 const rejectUnauthorized =
   String(process.env.DB_SSL_REJECT_UNAUTHORIZED || "true").toLowerCase() !==
   "false";
+const connectionTimeoutMillis = Number(
+  process.env.DB_CONNECTION_TIMEOUT_MS || 15000,
+);
 
 // Central database pool (for admin and tenant metadata)
 const centralPool = new Pool({
@@ -23,7 +26,7 @@ const centralPool = new Pool({
   min: parseInt(process.env.DB_POOL_MIN, 10),
   max: parseInt(process.env.DB_POOL_MAX, 10),
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis,
 });
 
 // Test central connection on startup
@@ -84,7 +87,7 @@ function getTenantPool(tenantId, tenantDbName) {
       min: parseInt(process.env.DB_POOL_MIN, 10),
       max: parseInt(process.env.DB_POOL_MAX, 10),
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis,
     });
   }
   return tenantPools[tenantId];
