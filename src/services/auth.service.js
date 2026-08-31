@@ -480,9 +480,10 @@ async function getAllTenants() {
 
   try {
     const result = await client.query(
-      `SELECT id, name, slug, email, database_name, modules, contact_person, phone, address, status, 
-            is_active, created_at, updated_at 
-       FROM tenant 
+      `SELECT id, name, slug, email, database_name, modules, contact_person, phone, address, status,
+            is_active, created_at, updated_at
+       FROM tenant
+       WHERE status IS DISTINCT FROM 'deleted'
        ORDER BY created_at DESC;`,
     );
 
@@ -718,6 +719,144 @@ async function deleteTenant(tenantId, actor = {}) {
     });
 
     return tenant;
+  } finally {
+    client.release();
+  }
+}
+
+async function getTenantBackup(tenantId) {
+  const client = await centralPool.connect();
+
+  try {
+    const tenantResult = await client.query(
+      `SELECT id, name, slug, email, database_name, status, is_active, created_at, updated_at
+       FROM tenant
+       WHERE id = $1;`,
+      [tenantId],
+    );
+
+    if (tenantResult.rows.length === 0) {
+      throw new Error("Tenant not found");
+    }
+
+    const tenant = tenantResult.rows[0];
+    const tenantPool = getTenantPool(tenant.id, tenant.database_name);
+    const tenantDbClient = await tenantPool.connect();
+
+    try {
+      const tablesResult = await tenantDbClient.query(
+        `SELECT table_name
+         FROM information_schema.tables
+         WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+         ORDER BY table_name;`,
+      );
+
+      const tables = {};
+      for (const row of tablesResult.rows) {
+        const tableName = row.table_name;
+        const safeTableName = String(tableName).trim();
+        if (!safeTableName || !/^[A-Za-z0-9_]+$/.test(safeTableName)) {
+          continue;
+        }
+
+        const data = await tenantDbClient.query(
+          `SELECT * FROM "${safeTableName}";`,
+        );
+        tables[safeTableName] = data.rows;
+      }
+
+      return {
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          slug: tenant.slug,
+          email: tenant.email,
+          database_name: tenant.database_name,
+          status: tenant.status,
+          is_active: tenant.is_active,
+        },
+        exported_at: new Date().toISOString(),
+        tables,
+      };
+    } finally {
+      tenantDbClient.release();
+    }
+  } finally {
+    client.release();
+  }
+}
+
+async function permanentlyDeleteTenant(tenantId, actor = {}) {
+  const client = await centralPool.connect();
+
+  try {
+    const tenantResult = await client.query(
+      `SELECT id, name, slug, email, database_name, neon_project_id
+       FROM tenant
+       WHERE id = $1;`,
+      [tenantId],
+    );
+
+    if (tenantResult.rows.length === 0) {
+      throw new Error("Tenant not found");
+    }
+
+    const tenant = tenantResult.rows[0];
+
+    await client.query("BEGIN;");
+
+    try {
+      const deletedTenant = await client.query(
+        `DELETE FROM tenant
+         WHERE id = $1
+         RETURNING id, name, slug, email, database_name, neon_project_id;`,
+        [tenantId],
+      );
+
+      if (deletedTenant.rows.length === 0) {
+        throw new Error("Tenant not found");
+      }
+
+      await client.query("COMMIT;");
+
+      if (tenant.database_name) {
+        try {
+          await client.query(`DROP DATABASE IF EXISTS "${tenant.database_name}";`);
+        } catch (dbError) {
+          console.error("Failed to drop tenant database:", dbError.message);
+        }
+      }
+
+      if (tenant.neon_project_id) {
+        try {
+          await deleteTenantProject(tenant.neon_project_id);
+        } catch (neonError) {
+          console.error("Failed to delete Neon project:", neonError.message);
+        }
+      }
+
+      if (tenantPools[tenantId]) {
+        delete tenantPools[tenantId];
+      }
+
+      await auditLogService.recordAuditEvent({
+        category: "tenant_lifecycle",
+        action: "permanently_deleted",
+        title: "Tenant permanently deleted",
+        message: `Tenant ${tenant.name} was permanently deleted from the platform and database was removed.`,
+        severity: "critical",
+        userEmail: actor.email || "system@edusphere.com",
+        userType: actor.type || actor.role || "system_admin",
+        tenantId,
+        tenantName: tenant.name,
+        metadata: { deletedBy: actor.email || null, databaseName: tenant.database_name },
+      });
+
+      return deletedTenant.rows[0];
+    } catch (error) {
+      await client.query("ROLLBACK;").catch(() => {});
+      throw error;
+    }
   } finally {
     client.release();
   }
@@ -1281,4 +1420,6 @@ module.exports = {
   updateTenant,
   updateTenantStatus,
   deleteTenant,
+  permanentlyDeleteTenant,
+  getTenantBackup,
 };

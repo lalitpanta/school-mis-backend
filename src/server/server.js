@@ -19,10 +19,10 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:5000",
   "http://localhost:5001",
-  ...((process.env.FRONTEND_URL || "")
+  ...(process.env.FRONTEND_URL || "")
     .split(",")
     .map((origin) => origin.trim().replace(/\/$/, ""))
-    .filter(Boolean)),
+    .filter(Boolean),
 ];
 
 app.use(

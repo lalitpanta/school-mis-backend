@@ -16,6 +16,7 @@ const {
   updateTenantController,
   deleteTenantController,
   permanentlyDeleteTenantController,
+  backupTenantController,
 } = require("../../controller/auth.controller");
 const {
   authenticateToken,
@@ -108,12 +109,20 @@ router.delete(
   permanentlyDeleteTenantController,
 );
 
-// Delete tenant (admin only)
+// Delete tenant (admin only) - soft delete
 router.delete(
   "/tenant/:id",
   authenticateToken,
   requireAdmin,
   deleteTenantController,
+);
+
+// Download tenant backup as JSON (admin only)
+router.get(
+  "/tenant/:id/backup",
+  authenticateToken,
+  requireAdmin,
+  backupTenantController,
 );
 
 module.exports = router;

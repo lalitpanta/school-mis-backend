@@ -14,6 +14,7 @@ const {
   updateTenant,
   deleteTenant,
   permanentlyDeleteTenant,
+  getTenantBackup,
 } = require("../services/auth.service");
 
 /**
@@ -274,7 +275,7 @@ async function deleteTenantController(req, res) {
 async function permanentlyDeleteTenantController(req, res) {
   try {
     const { id } = req.params;
-    const tenant = await permanentlyDeleteTenant(id);
+    const tenant = await permanentlyDeleteTenant(id, req.user || {});
     res.status(200).json({
       success: true,
       message: "Tenant permanently deleted",
@@ -285,6 +286,28 @@ async function permanentlyDeleteTenantController(req, res) {
     res.status(400).json({
       success: false,
       message: error.message || "Failed to permanently delete tenant",
+    });
+  }
+}
+
+async function backupTenantController(req, res) {
+  try {
+    const { id } = req.params;
+    const backup = await getTenantBackup(id);
+    const fileName = `${backup.tenant.slug || backup.tenant.database_name || id}-backup.json`;
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fileName}"`,
+    );
+
+    res.status(200).send(JSON.stringify(backup, null, 2));
+  } catch (error) {
+    console.error("Tenant backup error:", error.message);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to create tenant backup",
     });
   }
 }
@@ -541,4 +564,5 @@ module.exports = {
   updateTenantController,
   deleteTenantController,
   permanentlyDeleteTenantController,
+  backupTenantController,
 };
