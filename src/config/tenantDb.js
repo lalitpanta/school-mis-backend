@@ -2,32 +2,33 @@ const { Pool } = require("pg");
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 
-const useSsl = String(process.env.DB_SSL || "").toLowerCase() === "true";
+const useSsl =
+  Boolean(process.env.DATABASE_URL) ||
+  String(process.env.DB_SSL || "").toLowerCase() === "true";
 const rejectUnauthorized =
   String(process.env.DB_SSL_REJECT_UNAUTHORIZED || "true").toLowerCase() !==
   "false";
-const connectionTimeoutMillis = Number(
-  process.env.DB_CONNECTION_TIMEOUT_MS || 15000,
-);
+
+const buildPoolConfig = (overrides = {}) => ({
+  ...(process.env.DATABASE_URL
+    ? { connectionString: process.env.DATABASE_URL }
+    : {
+        host: process.env.DB_HOST,
+        port: Number(process.env.DB_PORT || 5432),
+        database: process.env.DB_NAME,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+      }),
+  ssl: useSsl ? { rejectUnauthorized } : false,
+  min: Number(process.env.DB_POOL_MIN || 0),
+  max: Number(process.env.DB_POOL_MAX || 10),
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+  ...overrides,
+});
 
 // Central database pool (for admin and tenant metadata)
-const centralPool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  ssl: process.env.DATABASE_URL
-    ? { rejectUnauthorized: false }
-    : useSsl
-      ? { rejectUnauthorized }
-      : false,
-  min: parseInt(process.env.DB_POOL_MIN, 10),
-  max: parseInt(process.env.DB_POOL_MAX, 10),
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis,
-});
+const centralPool = new Pool(buildPoolConfig());
 
 // Test central connection on startup
 centralPool.connect((err, client, release) => {
@@ -41,38 +42,6 @@ centralPool.connect((err, client, release) => {
 
 // Tenant-specific pools cache
 const tenantPools = {};
-const tenantConnectionStrings = new Map();
-
-async function loadTenantConnections() {
-  const result = await centralPool.query(
-    "SELECT id, connection_string FROM tenant WHERE connection_string IS NOT NULL AND is_active = TRUE",
-  );
-  for (const tenant of result.rows) {
-    registerTenantConnection(tenant.id, tenant.connection_string);
-  }
-}
-
-function registerTenantConnection(tenantId, connectionString) {
-  if (connectionString) {
-    tenantConnectionStrings.set(String(tenantId), connectionString);
-  }
-}
-
-function tenantPoolConfig(tenantId, tenantDbName) {
-  const connectionString = tenantConnectionStrings.get(String(tenantId));
-  if (connectionString) {
-    return { connectionString, ssl: { rejectUnauthorized: false } };
-  }
-
-  return {
-    host: process.env.TENANT_DB_HOST || process.env.DB_HOST,
-    port: process.env.TENANT_DB_PORT || process.env.DB_PORT,
-    database: tenantDbName,
-    user: process.env.TENANT_DB_USER || process.env.DB_USER,
-    password: process.env.TENANT_DB_PASSWORD || process.env.DB_PASSWORD,
-    ssl: useSsl ? { rejectUnauthorized } : false,
-  };
-}
 
 /**
  * Get or create a pool for a specific tenant database
@@ -82,13 +51,15 @@ function tenantPoolConfig(tenantId, tenantDbName) {
  */
 function getTenantPool(tenantId, tenantDbName) {
   if (!tenantPools[tenantId]) {
-    tenantPools[tenantId] = new Pool({
-      ...tenantPoolConfig(tenantId, tenantDbName),
-      min: parseInt(process.env.DB_POOL_MIN, 10),
-      max: parseInt(process.env.DB_POOL_MAX, 10),
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis,
-    });
+    tenantPools[tenantId] = new Pool(
+      buildPoolConfig({
+        host: process.env.TENANT_DB_HOST || process.env.DB_HOST,
+        port: Number(process.env.TENANT_DB_PORT || process.env.DB_PORT || 5432),
+        database: tenantDbName,
+        user: process.env.TENANT_DB_USER || process.env.DB_USER,
+        password: process.env.TENANT_DB_PASSWORD || process.env.DB_PASSWORD,
+      }),
+    );
   }
   return tenantPools[tenantId];
 }
@@ -776,8 +747,6 @@ async function initializeTenantDatabase(tenantId, databaseName) {
 
 module.exports = {
   centralPool,
-  loadTenantConnections,
-  registerTenantConnection,
   getTenantPool,
   createTenantDatabase,
   initializeTenantDatabase,
