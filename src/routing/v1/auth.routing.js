@@ -5,6 +5,9 @@ const {
   loginTenant,
   loginStaff,
   unifiedLoginController,
+  requestPasswordResetController,
+  verifyPasswordResetOtpController,
+  resetPasswordWithOtpController,
   changeTenantPasswordController,
   changeTenantEmailController,
   changeStaffPasswordController,
@@ -38,6 +41,11 @@ router.post("/staff/login", loginStaff);
 
 // Unified login (Admin, Tenant, or Staff)
 router.post("/login", unifiedLoginController);
+
+// Forgot password OTP flow
+router.post("/password/forgot", requestPasswordResetController);
+router.post("/password/verify-otp", verifyPasswordResetOtpController);
+router.post("/password/reset", resetPasswordWithOtpController);
 
 /**
  * Protected routes (require authentication)

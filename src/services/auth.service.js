@@ -8,6 +8,7 @@ const {
   registerTenantConnection,
 } = require("../config/tenantDb");
 const auditLogService = require("./auditLog.service");
+const emailService = require("./email.service");
 const { createTenantProject, deleteTenantProject } = require("./neon.service");
 
 const MODULE_LABELS = {
@@ -1179,6 +1180,254 @@ async function unifiedLogin(email, password, tenantSlug = null) {
   throw new Error("Invalid email or password");
 }
 
+const passwordResetOtpStore = new Map();
+const passwordResetVerifiedStore = new Map();
+
+function buildPasswordResetKey(email, tenantSlug = "") {
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
+  const normalizedSlug = String(tenantSlug || "")
+    .trim()
+    .toLowerCase();
+  return `${normalizedEmail}|${normalizedSlug}`;
+}
+
+function clearPasswordResetState(email, tenantSlug = "") {
+  const key = buildPasswordResetKey(email, tenantSlug);
+  passwordResetOtpStore.delete(key);
+  passwordResetVerifiedStore.delete(key);
+}
+
+async function findPasswordResetAccount(email, tenantSlug = "") {
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalizedEmail) {
+    throw new Error("Email is required");
+  }
+
+  if (tenantSlug) {
+    const normalizedSlug = slugify(tenantSlug);
+    if (!validateSlug(normalizedSlug)) {
+      throw new Error("Invalid tenant name or slug");
+    }
+
+    const client = await centralPool.connect();
+    try {
+      const result = await client.query(
+        "SELECT * FROM tenant WHERE slug = $1 AND is_active = TRUE;",
+        [normalizedSlug],
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error("No tenant account found for that tenant and email");
+      }
+
+      const tenant = result.rows[0];
+
+      if (tenant.email && tenant.email.toLowerCase() === normalizedEmail) {
+        return {
+          userType: "tenant",
+          tenant,
+          tenantId: tenant.id,
+          tenantSlug: tenant.slug,
+          databaseName: tenant.database_name,
+        };
+      }
+
+      const tenantPool = getTenantPool(tenant.id, tenant.database_name);
+      const tenantDbClient = await tenantPool.connect();
+      try {
+        const userResult = await tenantDbClient.query(
+          "SELECT * FROM tenant_users WHERE email = $1 AND is_active = TRUE;",
+          [normalizedEmail],
+        );
+
+        if (userResult.rows.length > 0) {
+          return {
+            userType: "staff",
+            tenant,
+            tenantId: tenant.id,
+            tenantSlug: tenant.slug,
+            databaseName: tenant.database_name,
+            user: userResult.rows[0],
+          };
+        }
+      } finally {
+        tenantDbClient.release();
+      }
+
+      throw new Error("No tenant account found for that tenant and email");
+    } finally {
+      client.release();
+    }
+  }
+
+  const client = await centralPool.connect();
+  try {
+    const result = await client.query(
+      "SELECT * FROM system_admin WHERE email = $1 AND is_active = TRUE;",
+      [normalizedEmail],
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error("No system admin account found for that email");
+    }
+
+    return {
+      userType: "admin",
+      admin: result.rows[0],
+    };
+  } finally {
+    client.release();
+  }
+}
+
+async function requestPasswordReset(email, tenantSlug = "") {
+  const account = await findPasswordResetAccount(email, tenantSlug);
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const key = buildPasswordResetKey(email, tenantSlug);
+
+  passwordResetOtpStore.set(key, {
+    otp,
+    userType: account.userType,
+    tenantSlug: tenantSlug ? slugify(tenantSlug) : "",
+    expiresAt: Date.now() + 10 * 60 * 1000,
+  });
+
+  passwordResetVerifiedStore.delete(key);
+
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
+  const subject = "Password Reset OTP";
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
+      <h2 style="margin-bottom: 12px;">Password Reset Request</h2>
+      <p>Your OTP for password reset is:</p>
+      <p style="font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #4f46e5; margin: 18px 0;">${otp}</p>
+      <p>This code is valid for 10 minutes.</p>
+      <p>If you did not request this, please ignore this email.</p>
+    </div>
+  `;
+
+  try {
+    await emailService.sendEmail(null, normalizedEmail, subject, html);
+  } catch (error) {
+    console.warn("Password reset email not sent:", error.message);
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Unable to send OTP email right now. Please try again.");
+    }
+  }
+
+  const response = {
+    success: true,
+    message: `Password reset OTP has been sent to ${normalizedEmail}.`,
+  };
+
+  if (process.env.NODE_ENV !== "production") {
+    response.otp = otp;
+  }
+
+  return response;
+}
+
+function verifyPasswordResetOtp(email, otp, tenantSlug = "") {
+  const key = buildPasswordResetKey(email, tenantSlug);
+  const record = passwordResetOtpStore.get(key);
+
+  if (!record) {
+    throw new Error("No password reset request found for this email");
+  }
+
+  if (Date.now() > record.expiresAt) {
+    clearPasswordResetState(email, tenantSlug);
+    throw new Error("The OTP has expired. Please request a new one.");
+  }
+
+  if (String(record.otp) !== String(otp || "").trim()) {
+    throw new Error("Invalid OTP. Please check the code and try again.");
+  }
+
+  passwordResetVerifiedStore.set(key, {
+    verifiedAt: Date.now(),
+    userType: record.userType,
+  });
+
+  return {
+    success: true,
+    message: "OTP verified successfully.",
+  };
+}
+
+async function resetPasswordWithOtp(email, otp, newPassword, tenantSlug = "") {
+  const key = buildPasswordResetKey(email, tenantSlug);
+  const record = passwordResetOtpStore.get(key);
+
+  if (!record) {
+    throw new Error("No password reset request found for this email");
+  }
+
+  if (Date.now() > record.expiresAt) {
+    clearPasswordResetState(email, tenantSlug);
+    throw new Error("The OTP has expired. Please request a new one.");
+  }
+
+  if (String(record.otp) !== String(otp || "").trim()) {
+    throw new Error("Invalid OTP. Please check the code and try again.");
+  }
+
+  if (!newPassword || String(newPassword).length < 6) {
+    throw new Error("New password must be at least 6 characters");
+  }
+
+  const account = await findPasswordResetAccount(email, tenantSlug);
+  const passwordHash = await hashPassword(newPassword);
+
+  if (account.userType === "admin") {
+    const client = await centralPool.connect();
+    try {
+      await client.query(
+        "UPDATE system_admin SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;",
+        [passwordHash, account.admin.id],
+      );
+    } finally {
+      client.release();
+    }
+  } else if (account.userType === "tenant") {
+    const client = await centralPool.connect();
+    try {
+      await client.query(
+        "UPDATE tenant SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;",
+        [passwordHash, account.tenant.id],
+      );
+    } finally {
+      client.release();
+    }
+  } else {
+    const tenantPool = getTenantPool(account.tenantId, account.databaseName);
+    const tenantDbClient = await tenantPool.connect();
+    try {
+      await tenantDbClient.query(
+        "UPDATE tenant_users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;",
+        [passwordHash, account.user.id],
+      );
+    } finally {
+      tenantDbClient.release();
+    }
+  }
+
+  clearPasswordResetState(email, tenantSlug);
+
+  return {
+    success: true,
+    message:
+      "Password reset successfully. You can now sign in with your new password.",
+  };
+}
+
 /**
  * Change Password for Tenant
  */
@@ -1441,6 +1690,9 @@ module.exports = {
   tenantLogin,
   staffLogin,
   unifiedLogin,
+  requestPasswordReset,
+  verifyPasswordResetOtp,
+  resetPasswordWithOtp,
   changeTenantPassword,
   changeTenantEmail,
   changeStaffPassword,

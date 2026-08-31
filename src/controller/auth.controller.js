@@ -3,6 +3,9 @@ const {
   tenantLogin,
   staffLogin,
   unifiedLogin,
+  requestPasswordReset,
+  verifyPasswordResetOtp,
+  resetPasswordWithOtp,
   changeTenantPassword,
   changeTenantEmail,
   changeStaffPassword,
@@ -337,6 +340,88 @@ async function unifiedLoginController(req, res) {
     res.status(401).json({
       success: false,
       message: error.message || "Login failed",
+    });
+  }
+}
+
+async function requestPasswordResetController(req, res) {
+  try {
+    const { email, tenantSlug } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    const result = await requestPasswordReset(email, tenantSlug || "");
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      ...(result.otp !== undefined ? { otp: result.otp } : {}),
+    });
+  } catch (error) {
+    console.error("Password reset request error:", error.message);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to initiate password reset",
+    });
+  }
+}
+
+async function verifyPasswordResetOtpController(req, res) {
+  try {
+    const { email, otp, tenantSlug } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and OTP are required",
+      });
+    }
+
+    const result = await verifyPasswordResetOtp(email, otp, tenantSlug || "");
+    res.status(200).json({
+      success: true,
+      message: result.message,
+    });
+  } catch (error) {
+    console.error("OTP verification error:", error.message);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to verify OTP",
+    });
+  }
+}
+
+async function resetPasswordWithOtpController(req, res) {
+  try {
+    const { email, otp, newPassword, tenantSlug } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Email, OTP, and new password are required",
+      });
+    }
+
+    const result = await resetPasswordWithOtp(
+      email,
+      otp,
+      newPassword,
+      tenantSlug || "",
+    );
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+    });
+  } catch (error) {
+    console.error("Password reset error:", error.message);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to reset password",
     });
   }
 }
