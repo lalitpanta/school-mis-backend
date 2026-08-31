@@ -2,24 +2,45 @@ const { Pool } = require("pg");
 const path = require("path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 
-const useSsl = String(process.env.DB_SSL || "").toLowerCase() === "true";
+const useSsl =
+  String(process.env.DB_SSL || "").toLowerCase() === "true" ||
+  Boolean(process.env.DATABASE_URL);
 const rejectUnauthorized =
   String(process.env.DB_SSL_REJECT_UNAUTHORIZED || "true").toLowerCase() !==
   "false";
 
+function buildPoolConfig(overrides = {}) {
+  const databaseUrl = overrides.connectionString || process.env.DATABASE_URL;
+
+  if (databaseUrl) {
+    return {
+      connectionString: databaseUrl,
+      ssl: { rejectUnauthorized },
+      min: parseInt(process.env.DB_POOL_MIN || "0", 10),
+      max: parseInt(process.env.DB_POOL_MAX || "10", 10),
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+      ...overrides,
+    };
+  }
+
+  return {
+    host: process.env.DB_HOST || process.env.TENANT_DB_HOST || "127.0.0.1",
+    port: Number(process.env.DB_PORT || process.env.TENANT_DB_PORT || 5432),
+    database: process.env.DB_NAME || process.env.TENANT_DB_NAME || "schoolmis",
+    user: process.env.DB_USER || process.env.TENANT_DB_USER || "postgres",
+    password: process.env.DB_PASSWORD || process.env.TENANT_DB_PASSWORD || "",
+    ssl: useSsl ? { rejectUnauthorized } : false,
+    min: parseInt(process.env.DB_POOL_MIN || "0", 10),
+    max: parseInt(process.env.DB_POOL_MAX || "10", 10),
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+    ...overrides,
+  };
+}
+
 // Central database pool (for admin and tenant metadata)
-const centralPool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  ssl: useSsl ? { rejectUnauthorized } : false,
-  min: parseInt(process.env.DB_POOL_MIN, 10),
-  max: parseInt(process.env.DB_POOL_MAX, 10),
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+const centralPool = new Pool(buildPoolConfig());
 
 // Test central connection on startup
 centralPool.connect((err, client, release) => {
@@ -42,18 +63,23 @@ const tenantPools = {};
  */
 function getTenantPool(tenantId, tenantDbName) {
   if (!tenantPools[tenantId]) {
-    tenantPools[tenantId] = new Pool({
-      host: process.env.TENANT_DB_HOST || process.env.DB_HOST,
-      port: process.env.TENANT_DB_PORT || process.env.DB_PORT,
-      database: tenantDbName,
-      user: process.env.TENANT_DB_USER || process.env.DB_USER,
-      password: process.env.TENANT_DB_PASSWORD || process.env.DB_PASSWORD,
-      ssl: useSsl ? { rejectUnauthorized } : false,
-      min: parseInt(process.env.DB_POOL_MIN, 10),
-      max: parseInt(process.env.DB_POOL_MAX, 10),
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    });
+    const tenantConnectionString =
+      process.env.TENANT_DATABASE_URL || process.env.DATABASE_URL;
+
+    tenantPools[tenantId] = new Pool(
+      buildPoolConfig(
+        tenantConnectionString
+          ? { connectionString: tenantConnectionString }
+          : {
+              database: tenantDbName,
+              host: process.env.TENANT_DB_HOST || process.env.DB_HOST || "127.0.0.1",
+              port: Number(process.env.TENANT_DB_PORT || process.env.DB_PORT || 5432),
+              user: process.env.TENANT_DB_USER || process.env.DB_USER || "postgres",
+              password:
+                process.env.TENANT_DB_PASSWORD || process.env.DB_PASSWORD || "",
+            },
+      ),
+    );
   }
   return tenantPools[tenantId];
 }

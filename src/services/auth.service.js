@@ -821,7 +821,9 @@ async function permanentlyDeleteTenant(tenantId, actor = {}) {
 
       if (tenant.database_name) {
         try {
-          await client.query(`DROP DATABASE IF EXISTS "${tenant.database_name}";`);
+          await client.query(
+            `DROP DATABASE IF EXISTS "${tenant.database_name}";`,
+          );
         } catch (dbError) {
           console.error("Failed to drop tenant database:", dbError.message);
         }
@@ -849,7 +851,10 @@ async function permanentlyDeleteTenant(tenantId, actor = {}) {
         userType: actor.type || actor.role || "system_admin",
         tenantId,
         tenantName: tenant.name,
-        metadata: { deletedBy: actor.email || null, databaseName: tenant.database_name },
+        metadata: {
+          deletedBy: actor.email || null,
+          databaseName: tenant.database_name,
+        },
       });
 
       return deletedTenant.rows[0];

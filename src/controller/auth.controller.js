@@ -109,7 +109,8 @@ async function loginStaff(req, res) {
  */
 async function createNewTenant(req, res) {
   try {
-    const { name, email, password, databaseName, slug, modules, packageId } = req.body;
+    const { name, email, password, databaseName, slug, modules, packageId } =
+      req.body;
 
     if (!name || !email || !password || !databaseName) {
       return res.status(400).json({
@@ -297,10 +298,7 @@ async function backupTenantController(req, res) {
     const fileName = `${backup.tenant.slug || backup.tenant.database_name || id}-backup.json`;
 
     res.setHeader("Content-Type", "application/json");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${fileName}"`,
-    );
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
 
     res.status(200).send(JSON.stringify(backup, null, 2));
   } catch (error) {
