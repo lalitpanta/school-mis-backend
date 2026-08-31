@@ -57,6 +57,30 @@ centralPool.connect((err, client, release) => {
 
 // Tenant-specific pools cache
 const tenantPools = {};
+const tenantConnectionMap = new Map();
+
+function registerTenantConnection(tenantId, connectionString) {
+  if (!tenantId || !connectionString) return null;
+
+  tenantConnectionMap.set(String(tenantId), String(connectionString));
+  return String(connectionString);
+}
+
+async function loadTenantConnections() {
+  const result = await centralPool.query(
+    `SELECT id, connection_string
+     FROM tenant
+     WHERE connection_string IS NOT NULL AND connection_string <> ''`,
+  );
+
+  for (const row of result.rows) {
+    if (row.connection_string) {
+      registerTenantConnection(row.id, row.connection_string);
+    }
+  }
+
+  return tenantConnectionMap;
+}
 
 /**
  * Get or create a pool for a specific tenant database
@@ -65,11 +89,18 @@ const tenantPools = {};
  * @returns {Pool} PostgreSQL pool for the tenant
  */
 function getTenantPool(tenantId, tenantDbName) {
-  if (!tenantPools[tenantId]) {
-    const tenantConnectionString =
-      process.env.TENANT_DATABASE_URL || process.env.DATABASE_URL;
+  if (!tenantId) {
+    throw new Error("Tenant ID is required to create a tenant DB pool");
+  }
 
-    tenantPools[tenantId] = new Pool(
+  const tenantKey = String(tenantId);
+  if (!tenantPools[tenantKey]) {
+    const tenantConnectionString =
+      tenantConnectionMap.get(tenantKey) ||
+      process.env.TENANT_DATABASE_URL ||
+      process.env.DATABASE_URL;
+
+    tenantPools[tenantKey] = new Pool(
       buildPoolConfig(
         tenantConnectionString
           ? { connectionString: tenantConnectionString }
@@ -90,7 +121,7 @@ function getTenantPool(tenantId, tenantDbName) {
       ),
     );
   }
-  return tenantPools[tenantId];
+  return tenantPools[tenantKey];
 }
 
 /**
@@ -779,4 +810,6 @@ module.exports = {
   getTenantPool,
   createTenantDatabase,
   initializeTenantDatabase,
+  registerTenantConnection,
+  loadTenantConnections,
 };
