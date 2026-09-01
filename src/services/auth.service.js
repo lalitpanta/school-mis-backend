@@ -1,4 +1,4 @@
-const jwt = require("jsonwebtoken");
+﻿const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const { v4: uuidv4 } = require("uuid");
 const {
@@ -43,6 +43,7 @@ const MODULE_LABELS = {
   daily_reports: "Daily Reports",
   fee_management: "Fee Management",
   leave_management: "Leave Management",
+  accounts: "Accounts",
 };
 
 function slugify(value) {
@@ -482,7 +483,7 @@ async function createTenant(
       },
     });
 
-    console.log(`✅ Tenant ${name} created successfully`);
+    console.log(`âœ… Tenant ${name} created successfully`);
     return result.rows[0];
   } catch (error) {
     await client.query("ROLLBACK;");
@@ -1706,3 +1707,4 @@ module.exports = {
   permanentlyDeleteTenant,
   getTenantBackup,
 };
+
