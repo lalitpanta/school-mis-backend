@@ -237,6 +237,15 @@ masterRouter.use(
   require("./v1/dashboard.routing")
 );
 
+masterRouter.use(
+  "/accounts",
+  authenticateToken,
+  requireTenant,
+  attachTenantContext,
+  requireModule("accounts"),
+  require("./v1/accounts.routing")
+);
+
 // Health check
 masterRouter.get("/health", (req, res) => res.json({ status: "ok" }));
 
