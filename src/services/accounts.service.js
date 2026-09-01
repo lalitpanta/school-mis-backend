@@ -1,24 +1,24 @@
-/**
+﻿/**
  * Accounts Service
  * Handles all financial overview, transactions, expenses, and payroll queries.
- * Uses req.tenantPool — the per-tenant PostgreSQL pool injected by middleware.
+ * Uses req.tenantPool â€” the per-tenant PostgreSQL pool injected by middleware.
  */
 
 class AccountsService {
-  // ── helpers ──────────────────────────────────────────────────────────────
+  // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /** Returns the current BS fiscal year label, e.g. "2082/83" */
   _currentFiscalYear() {
     const now = new Date();
     // Nepali fiscal year starts mid-July (roughly). Simple heuristic:
-    const month = now.getMonth() + 1; // 1–12
+    const month = now.getMonth() + 1; // 1â€“12
     const year  = now.getFullYear();
-    const nepYear = year - 57; // approximate AD→BS offset
+    const nepYear = year - 57; // approximate ADâ†’BS offset
     if (month >= 7) return `${nepYear}/${String(nepYear + 1).slice(-2)}`;
     return `${nepYear - 1}/${String(nepYear).slice(-2)}`;
   }
 
-  // ── ensure tables exist (graceful fallback for tenants not yet migrated) ─
+  // â”€â”€ ensure tables exist (graceful fallback for tenants not yet migrated) â”€
 
   async _ensureTables(db) {
     await db.query(`
@@ -68,7 +68,7 @@ class AccountsService {
         basic_salary   NUMERIC(14,2) NOT NULL DEFAULT 0,
         allowances     NUMERIC(14,2) DEFAULT 0,
         deductions     NUMERIC(14,2) DEFAULT 0,
-        net_salary     NUMERIC(14,2) GENERATED ALWAYS AS (basic_salary + allowances - deductions) STORED,
+        net_salary     NUMERIC(14,2) DEFAULT 0,
         payment_date   DATE,
         payment_mode   VARCHAR(50)   DEFAULT 'bank',
         status         VARCHAR(20)   DEFAULT 'pending',
@@ -79,7 +79,7 @@ class AccountsService {
     `);
   }
 
-  // ── Overview (dashboard cards + stats) ───────────────────────────────────
+  // â”€â”€ Overview (dashboard cards + stats) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async getOverview(filters, req) {
     const db = req.tenantPool;
@@ -135,7 +135,7 @@ class AccountsService {
         WHERE concession_amount > 0
       `).catch(() => ({ rows: [{ cnt: 0, total: 0 }] })),
 
-      // Previous period income (for trend — same fiscal year, last 30 days)
+      // Previous period income (for trend â€” same fiscal year, last 30 days)
       db.query(`
         SELECT COALESCE(SUM(amount),0) AS total
         FROM accounts_transactions
@@ -202,7 +202,7 @@ class AccountsService {
     };
   }
 
-  // ── Transactions ─────────────────────────────────────────────────────────
+  // â”€â”€ Transactions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async getTransactions(filters, req) {
     const db = req.tenantPool;
@@ -317,7 +317,7 @@ class AccountsService {
     return { deleted: true, id };
   }
 
-  // ── Expense categories ────────────────────────────────────────────────────
+  // â”€â”€ Expense categories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async getExpenseCategories(req) {
     const db = req.tenantPool;
@@ -349,7 +349,7 @@ class AccountsService {
     return result.rows;
   }
 
-  // ── Collection by class ───────────────────────────────────────────────────
+  // â”€â”€ Collection by class â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async getCollectionByClass(filters, req) {
     const db = req.tenantPool;
@@ -377,7 +377,7 @@ class AccountsService {
     }));
   }
 
-  // ── Payroll ───────────────────────────────────────────────────────────────
+  // â”€â”€ Payroll â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async getPayroll(filters, req) {
     const db = req.tenantPool;
@@ -405,16 +405,17 @@ class AccountsService {
 
     const fy = fiscal_year || this._currentFiscalYear();
 
+    const netSalary = parseFloat(basic_salary) + parseFloat(allowances || 0) - parseFloat(deductions || 0);
     const result = await db.query(`
       INSERT INTO accounts_payroll
         (employee_id, employee_name, employee_type, fiscal_year, pay_month,
-         basic_salary, allowances, deductions, payment_date, payment_mode, notes)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         basic_salary, allowances, deductions, net_salary, payment_date, payment_mode, notes)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING *
     `, [
       employee_id, employee_name, employee_type || 'staff',
       fy, pay_month,
-      basic_salary, allowances || 0, deductions || 0,
+      basic_salary, allowances || 0, deductions || 0, netSalary,
       payment_date || null, payment_mode || 'bank', notes || null,
     ]);
 
@@ -431,7 +432,7 @@ class AccountsService {
     return result.rows[0];
   }
 
-  // ── Report export (CSV) ───────────────────────────────────────────────────
+  // â”€â”€ Report export (CSV) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   async exportTransactionsCsv(filters, req) {
     const db = req.tenantPool;
@@ -476,3 +477,5 @@ class AccountsService {
 }
 
 module.exports = new AccountsService();
+
+

@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 var dbm;
 var type;
@@ -12,7 +12,7 @@ exports.setup = function (options, seedLink) {
 
 exports.up = function (db) {
   return db.runSql(`
-    -- ── Expense categories ───────────────────────────────────────────────
+    -- â”€â”€ Expense categories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     CREATE TABLE IF NOT EXISTS accounts_expense_categories (
       id   SERIAL PRIMARY KEY,
       name VARCHAR(100) NOT NULL UNIQUE,
@@ -30,7 +30,7 @@ exports.up = function (db) {
       ('Other',                    '#94a3b8')
     ON CONFLICT (name) DO NOTHING;
 
-    -- ── Accounts transactions ────────────────────────────────────────────
+    -- â”€â”€ Accounts transactions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     -- A single ledger for both income (fee receipts) and expenses
     CREATE TABLE IF NOT EXISTS accounts_transactions (
       id            SERIAL PRIMARY KEY,
@@ -60,7 +60,7 @@ exports.up = function (db) {
     CREATE INDEX IF NOT EXISTS idx_acct_txn_fiscal_year  ON accounts_transactions(fiscal_year);
     CREATE INDEX IF NOT EXISTS idx_acct_txn_student_id   ON accounts_transactions(student_id);
 
-    -- ── Payroll runs ─────────────────────────────────────────────────────
+    -- â”€â”€ Payroll runs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     CREATE TABLE IF NOT EXISTS accounts_payroll (
       id             SERIAL PRIMARY KEY,
       employee_id    UUID          NOT NULL,  -- tenant_users or teachers.id
@@ -72,7 +72,7 @@ exports.up = function (db) {
       basic_salary   NUMERIC(14,2) NOT NULL DEFAULT 0,
       allowances     NUMERIC(14,2) DEFAULT 0,
       deductions     NUMERIC(14,2) DEFAULT 0,
-      net_salary     NUMERIC(14,2) GENERATED ALWAYS AS (basic_salary + allowances - deductions) STORED,
+      net_salary     NUMERIC(14,2) DEFAULT 0,
       payment_date   DATE,
       payment_mode   VARCHAR(50)   DEFAULT 'bank',
       status         VARCHAR(20)   DEFAULT 'pending'
@@ -97,3 +97,4 @@ exports.down = function (db) {
 };
 
 exports._meta = { version: 1 };
+
