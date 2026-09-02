@@ -2,11 +2,34 @@ const { getTenantPool } = require("../config/tenantDb");
 
 class YearService {
   /**
+   * Ensure the year table has all required columns.
+   * Safe to call on every request — uses ADD COLUMN IF NOT EXISTS.
+   */
+  _ensureYearSchema = async (pool) => {
+    await pool.query(`
+      ALTER TABLE "year"
+        ADD COLUMN IF NOT EXISTS year_label_ad  VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS year_label_bs  VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS start_date_ad  DATE,
+        ADD COLUMN IF NOT EXISTS end_date_ad    DATE,
+        ADD COLUMN IF NOT EXISTS start_date_bs  VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS end_date_bs    VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS is_current     BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+    `);
+  };
+
+  /**
    * Create or update year
    */
   uploadYear = async (yearData, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+
+      // Ensure all columns exist before trying to insert
+      await this._ensureYearSchema(pool);
+
       const query = `
         INSERT INTO "year" (
           year_label, year_label_ad, year_label_bs,
@@ -24,7 +47,8 @@ class YearService {
           end_date_bs   = EXCLUDED.end_date_bs,
           start_date    = EXCLUDED.start_date,
           end_date      = EXCLUDED.end_date,
-          is_current    = EXCLUDED.is_current
+          is_current    = EXCLUDED.is_current,
+          updated_at    = CURRENT_TIMESTAMP
         RETURNING *
       `;
 
@@ -64,7 +88,6 @@ class YearService {
 
       return year;
     } catch (err) {
-      // Re-throw with the original Postgres message preserved
       throw new Error(`Failed to upload year: ${err.message}`);
     }
   };
@@ -75,6 +98,7 @@ class YearService {
   getAllYears = async (req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      await this._ensureYearSchema(pool);
       const query = 'SELECT * FROM "year" ORDER BY start_date DESC';
       const result = await pool.query(query);
       return result.rows;
