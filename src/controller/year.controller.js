@@ -104,6 +104,65 @@ class YearController {
       next(err);
     }
   };
+  /**
+   * Get available academic years for dropdown (BS: 2082-2086, AD: 2025-2050)
+   */
+  get_year_options = async (req, res, next) => {
+    try {
+      const { mode = "BS" } = req.query;
+      let options = [];
+      if (mode === "BS") {
+        options = yearService.getAvailableBsYears();
+      } else if (mode === "AD") {
+        options = Array.from({ length: 26 }, (_, i) => 2025 + i);
+      } else {
+        return res.status(400).json({ error: "mode must be '"'"'BS'"'"' or '"'"'AD'"'"'" });
+      }
+      return res.status(200).json({
+        message: `Year options for mode ${mode}`,
+        data: { mode, years: options },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * Get auto-calculated month boundaries (dates computed from BS calendar reference)
+   */
+  get_month_auto = async (req, res, next) => {
+    try {
+      const { year_id, month_index } = req.query;
+      if (!year_id || !month_index) {
+        return res.status(400).json({ error: "year_id and month_index are required" });
+      }
+      const pool = req?.tenantPool || require("../config/db");
+      const yearResult = await pool.query('"'"'SELECT * FROM "year" WHERE id = $1'"'"', [year_id]);
+      if (yearResult.rows.length === 0) {
+        return res.status(404).json({ error: "Year not found" });
+      }
+      const year = yearResult.rows[0];
+      const monthIdx = parseInt(month_index, 10);
+      if (!year.year_label_bs) {
+        return res.status(400).json({ error: "Year does not have BS year info" });
+      }
+      const bsYear = parseInt(year.year_label_bs.split('"'"'/'"'"')[0], 10);
+      const monthInfo = yearService.getBsMonthInfo(bsYear, monthIdx);
+      const monthNames = ["Baisakh", "Jestha", "Ashadh", "Shrawan", "Bhadra", "Ashwin", "Kartik", "Mangsir", "Poush", "Magh", "Falgun", "Chaitra"];
+      return res.status(200).json({
+        message: "Auto-calculated month info",
+        data: {
+          year_id,
+          month_index: monthIdx,
+          ...monthInfo,
+          month_name: monthNames[monthIdx - 1],
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
 }
 
 const yearCTRL = new YearController();
