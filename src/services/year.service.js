@@ -229,9 +229,7 @@ class YearService {
             start_date_ad, end_date_ad, start_date_bs, end_date_bs,
             start_date, end_date, is_current
           )
-          VALUES (}
-
-const yearService, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
           ON CONFLICT (year_label)
           DO UPDATE SET
             year_label_ad = EXCLUDED.year_label_ad,
@@ -309,9 +307,7 @@ const yearService, $2, $3, $4, $5, $6, $7, $8, $9, $10)
               month_start_day_BS, month_end_day_BS,
               month_start_day_AD, month_end_day_AD,
               date_format
-            ) VALUES (}
-
-const yearService, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
           `;
           
