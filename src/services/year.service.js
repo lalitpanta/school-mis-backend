@@ -9,7 +9,7 @@ class YearService {
       const pool = req?.tenantPool || require("../config/db");
       const query = `
         INSERT INTO "year" (
-          year_label, year_label_ad, year_label_bs, 
+          year_label, year_label_ad, year_label_bs,
           start_date_ad, end_date_ad, start_date_bs, end_date_bs,
           start_date, end_date, is_current
         )
@@ -38,20 +38,33 @@ class YearService {
         yearData.end_date_BS,
         yearData.start_date_AD || yearData.start_date,
         yearData.end_date_AD   || yearData.end_date,
-        yearData.is_current || false
+        yearData.is_current || false,
       ];
+
       const result = await pool.query(query, values);
       const year = result.rows[0];
 
       if (year && year.is_current) {
-        await pool.query('SELECT set_current_year($1)', [year.id]);
-        // Refresh the object to reflect DB changes
-        const refreshed = await pool.query('SELECT * FROM "year" WHERE id = $1', [year.id]);
+        // Inline the set_current_year logic — do NOT call the stored function
+        // because it may not exist on tenants where migrations have not run yet.
+        await pool.query(
+          'UPDATE "year" SET is_current = false WHERE id <> $1',
+          [year.id],
+        );
+        await pool.query(
+          'UPDATE "year" SET is_current = true WHERE id = $1',
+          [year.id],
+        );
+        const refreshed = await pool.query(
+          'SELECT * FROM "year" WHERE id = $1',
+          [year.id],
+        );
         return refreshed.rows[0];
       }
 
       return year;
     } catch (err) {
+      // Re-throw with the original Postgres message preserved
       throw new Error(`Failed to upload year: ${err.message}`);
     }
   };
