@@ -172,38 +172,25 @@ class YearService {
       const pool = req?.tenantPool || require("../config/db");
       await this._ensureYearSchema(pool);
 
-      // BS calendar data - days in each month for each year
-      const BS_DATA = {
-        2079: [31,32,31,32,31,30,30,29,30,29,30,30],
-        2080: [31,31,32,32,31,30,30,30,29,29,30,30],
-        2081: [31,31,32,32,31,30,30,30,29,30,29,31],
-        2082: [30,32,31,32,31,30,30,30,29,30,30,30],
-        2083: [31,31,32,31,31,31,30,29,30,29,30,30],
-        2084: [31,31,32,32,31,30,30,29,30,29,30,30],
-        2085: [31,32,31,32,31,30,30,29,30,29,30,30],
-        2086: [31,31,32,31,31,30,30,29,30,30,29,31],
-      };
-
-      // Baisakh 1 start dates in AD
-      const BS_YEAR_START_AD = {
-        2079: new Date(2022,3,14), // Apr 14 2022
-        2080: new Date(2023,3,14), // Apr 14 2023
-        2081: new Date(2024,3,13), // Apr 13 2024
-        2082: new Date(2025,3,14), // Apr 14 2025
-        2083: new Date(2026,3,14), // Apr 14 2026
-        2084: new Date(2027,3,14), // Apr 14 2027
-        2085: new Date(2028,3,13), // Apr 13 2028
-        2086: new Date(2029,3,14), // Apr 14 2029
-      };
+      // Use dynamic BS calendar reference (supports 2082-2120)
+      const { getBsMonthInfo } = require("./bsCalendar.service");
+      
+      // Validate BS year is in supported range
+      const availableYears = this.getAvailableBsYears();
+      if (!availableYears.includes(bsYear)) {
+        throw new Error(`BS year ${bsYear} is not supported. Available: 2082-2120`);
+      }
+      
+      // Get year start date from first month (Baisakh)
+      const firstMonth = getBsMonthInfo(bsYear, 1);
+      const yearStartAD = new Date(firstMonth.adStartDate);
 
       const BS_MONTHS = [
         'Baisakh','Jestha','Ashadh','Shrawan','Bhadra','Ashwin',
         'Kartik','Mangsir','Poush','Magh','Falgun','Chaitra',
       ];
 
-      if (!BS_DATA[bsYear]) {
-        throw new Error(`BS year ${bsYear} is not supported. Available: ${Object.keys(BS_DATA).join(', ')}`);
-      }
+
 
       const client = await pool.connect();
       
@@ -219,10 +206,17 @@ class YearService {
         const yearLabelBS = `${bsYear}/${(bsYear + 1).toString().slice(-2)}`;
         const yearLabelAD = `${adStartYear}/${adEndYear.toString().slice(-2)}`;
         
-        // Calculate year start and end dates
-        const yearStartAD = BS_YEAR_START_AD[bsYear];
-        const nextYearStartAD = BS_YEAR_START_AD[bsYear + 1] || new Date(yearStartAD.getFullYear() + 1, 3, 14);
-        const yearEndAD = new Date(nextYearStartAD.getTime() - 24 * 60 * 60 * 1000); // Day before next year starts
+        // Calculate year start and end dates from calendar service
+        // Year end is the last day of the 12th month
+        let yearEndAD = new Date(yearStartAD);
+        for (let m = 1; m <= 12; m++) {
+          const monthInfo = getBsMonthInfo(bsYear, m);
+          const monthEnd = new Date(monthInfo.adStartDate);
+          monthEnd.setDate(monthEnd.getDate() + monthInfo.daysInMonth - 1);
+          if (m === 12) {
+            yearEndAD = monthEnd;
+          }
+        }
         
         const formatDate = (date) => date.toISOString().slice(0, 10);
         const startDateStr = formatDate(yearStartAD);
@@ -272,8 +266,8 @@ const yearService, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         // Create months table if not exists
         await client.query(`
           CREATE TABLE IF NOT EXISTS "month_class_data" (
-            id SERIAL PRIMARY KEY,
-            year_id INTEGER REFERENCES "year"(id) ON DELETE CASCADE,
+            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            year_id UUID REFERENCES "year"(id) ON DELETE CASCADE,
             month_name VARCHAR(100) NOT NULL,
             bs_month_index INTEGER,
             month_start_date_BS VARCHAR(255),
@@ -295,17 +289,17 @@ const yearService, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 
 
         
-        // Calculate and insert all 12 months
+        // Calculate and insert all 12 months using dynamic calendar data
         const createdMonths = [];
-        let currentDate = new Date(yearStartAD);
         
         for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
           const monthName = BS_MONTHS[monthIndex];
-          const daysInMonth = BS_DATA[bsYear][monthIndex];
+          const monthInfo = getBsMonthInfo(bsYear, monthIndex + 1);
+          const daysInMonth = monthInfo.daysInMonth;
           
-          // Calculate month start and end dates
-          const monthStart = new Date(currentDate);
-          const monthEnd = new Date(currentDate.getTime() + (daysInMonth - 1) * 24 * 60 * 60 * 1000);
+          // Calculate month start and end dates from calendar service
+          const monthStart = new Date(monthInfo.adStartDate);
+          const monthEnd = new Date(monthStart.getTime() + (daysInMonth - 1) * 24 * 60 * 60 * 1000);
           
           const monthQuery = `
             INSERT INTO "month_class_data" (
@@ -338,9 +332,7 @@ const yearService, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           
           const monthResult = await client.query(monthQuery, monthValues);
           createdMonths.push(monthResult.rows[0]);
-          
-          // Move to next month start date
-          currentDate = new Date(monthEnd.getTime() + 24 * 60 * 60 * 1000);
+
         }
         
         await client.query('COMMIT');
