@@ -250,12 +250,8 @@ const yearService, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         
         // Set as current year if requested
         if (setAsCurrent) {
-          await client.query('UPDATE "year" SET is_current = false WHERE id <> }
-
-const yearService', [createdYear.id]);
-          await client.query('UPDATE "year" SET is_current = true WHERE id = }
-
-const yearService', [createdYear.id]);
+          await client.query('UPDATE "year" SET is_current = false WHERE id <> $1', [createdYear.id]);
+          await client.query('UPDATE "year" SET is_current = true WHERE id = $1', [createdYear.id]);
         }
         
         // Create months table if not exists
