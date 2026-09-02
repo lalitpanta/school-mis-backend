@@ -276,9 +276,9 @@ const yearService, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         `);
         
         // Delete existing months for this year to avoid duplicates
-        await client.query('DELETE FROM "month_class_data" WHERE year_id = }
+        await client.query('DELETE FROM "month_class_data" WHERE year_id = $1', [createdYear.id]);
 
-const yearService', [createdYear.id]);
+
         
         // Calculate and insert all 12 months
         const createdMonths = [];
