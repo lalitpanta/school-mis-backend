@@ -197,6 +197,22 @@ class StudentsService {
     );
   };
 
+  /**
+   * Ensure students table has all required columns.
+   * Safe to call on every request — patches existing tenant DBs that are missing columns.
+   * Uses ADD COLUMN IF NOT EXISTS so it's idempotent.
+   */
+  _ensureStudentsSchema = async (pool) => {
+    await pool.query(`
+      ALTER TABLE students
+        ADD COLUMN IF NOT EXISTS additional_info TEXT,
+        ADD COLUMN IF NOT EXISTS emergency_contacts JSONB DEFAULT '[]'::jsonb,
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS guardian_email VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb;
+    `);
+  };
   list = async (req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
@@ -336,6 +352,7 @@ class StudentsService {
     try {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensureTable(pool);
+      await this._ensureStudentsSchema(pool);
 
       // Validate section_id if provided
       if (
