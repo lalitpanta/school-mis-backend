@@ -8,5 +8,6 @@ yearRoute.get('/getyear/:id', yearCTRL.get_year);
 yearRoute.patch('/updateyear/:id', yearCTRL.upload_year);
 yearRoute.delete('/deleteyear/:id', yearCTRL.delete_year);
 yearRoute.post('/seed-nepali-year', yearCTRL.seed_nepali_year);
+yearRoute.get('/options', yearCTRL.get_year_options);
 
 module.exports=yearRoute;

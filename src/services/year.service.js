@@ -1,6 +1,21 @@
 const { getTenantPool } = require("../config/tenantDb");
+const { getAvailableBsYears } = require("./bsCalendar.service");
 
 class YearService {
+  /**
+   * Get available BS years from calendar reference (2082-2120)
+   */
+  getAvailableBsYears = () => {
+    return getAvailableBsYears();
+  };
+
+  /**
+   * Get BS month info from calendar reference
+   */
+  getBsMonthInfo = (bsYear, bsMonth) => {
+    const { getBsMonthInfo } = require("./bsCalendar.service");
+    return getBsMonthInfo(bsYear, bsMonth);
+  };
   /**
    * Ensure the year table has all required columns.
    * Safe to call on every request — uses ADD COLUMN IF NOT EXISTS.

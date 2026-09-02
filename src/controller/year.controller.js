@@ -88,10 +88,10 @@ class YearController {
         });
       }
 
-      // Validate BS year range
-      if (bs_year < 2079 || bs_year > 2090) {
+      // Validate BS year range - now 2082-2120
+      if (bs_year < 2082 || bs_year > 2120) {
         return res.status(400).json({
-          error: "bs_year must be between 2079 and 2090",
+          error: "bs_year must be between 2082 and 2120",
         });
       }
 
@@ -107,7 +107,7 @@ class YearController {
   };
 
   /**
-   * Get available academic years for dropdown (BS: 2082-2086, AD: 2025-2050)
+   * Get available academic years for dropdown (BS: 2082-2120, AD: 2025-2050)
    */
   get_year_options = async (req, res, next) => {
     try {
