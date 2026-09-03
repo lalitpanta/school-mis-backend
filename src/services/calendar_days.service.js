@@ -318,6 +318,10 @@ class CalendarDaysService {
       }
 
       const result = await pool.query(query, values);
+      if (result.rows.length > 0) {
+        await pool.query('SELECT refresh_year_category_stats($1)', [result.rows[0].year_id])
+          .catch(e => console.error("Stats refresh failed", e));
+      }
       return result.rows;
     } catch (err) {
       throw new Error(
@@ -368,6 +372,11 @@ class CalendarDaysService {
         }
 
         results.push(result.rows[0]);
+      }
+
+      if (results.length > 0) {
+        await pool.query('SELECT refresh_year_category_stats($1)', [results[0].year_id])
+          .catch(e => console.error("Stats refresh failed", e));
       }
 
       return results;
