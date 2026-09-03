@@ -275,7 +275,7 @@ class CalendarDaysService {
             mc.month_start_date_AD::date,
             mc.month_end_date_AD::date,
             interval '1 day'
-          ) AS generated_date
+          ) AS generated_days(generated_date)
         ) AS day_info
         WHERE mc.id = $1
           AND NOT EXISTS (
@@ -290,17 +290,17 @@ class CalendarDaysService {
       // missing rows so existing assignments remain untouched.
       await pool.query(ensureDaysQuery, [monthId]);
       const query = `
-        SELECT 
+        SELECT
           cd.id,
           cd.day_number,
           cd.day_of_week,
           dc.day_type,
           cat.category_name,
           mc.month_name,
-          CASE 
-            WHEN $2 = 'BS' THEN 
+          CASE
+            WHEN $2 = 'BS' THEN
               substring(mc.month_start_date_BS from 1 for 8) || LPAD((substring(mc.month_start_date_BS from 9 for 2)::integer + cd.day_number - 1)::text, 2, '0')
-            ELSE 
+            ELSE
               TO_CHAR((mc.month_start_date_AD::DATE + (cd.day_number - 1)::integer * INTERVAL '1 day')::DATE, 'YYYY-MM-DD')
           END as date,
           dc.id as day_type_id
