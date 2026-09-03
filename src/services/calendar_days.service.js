@@ -253,6 +253,42 @@ class CalendarDaysService {
   getCalendarWithDates = async (monthId, dateFormat = "BS", req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (monthId === "whole_year" || !uuidRegex.test(monthId)) {
+        return [];
+      }
+
+      const ensureDaysQuery = `
+        INSERT INTO "calendar_days" (year_id, month_id, day_number, day_of_week)
+        SELECT
+          mc.year_id,
+          mc.id,
+          day_info.day_number,
+          TO_CHAR(day_info.day_date, 'FMDay')
+        FROM "month_class_data" mc
+        CROSS JOIN LATERAL (
+          SELECT
+            row_number() OVER (ORDER BY generated_date)::integer AS day_number,
+            generated_date::date AS day_date
+          FROM generate_series(
+            mc.month_start_date_AD::date,
+            mc.month_end_date_AD::date,
+            interval '1 day'
+          ) AS generated_date
+        ) AS day_info
+        WHERE mc.id = $1
+          AND NOT EXISTS (
+            SELECT 1
+            FROM "calendar_days" existing_day
+            WHERE existing_day.month_id = mc.id
+              AND existing_day.day_number = day_info.day_number
+          )
+      `;
+
+      // Older months may not have generated calendar_days rows yet. Create only
+      // missing rows so existing assignments remain untouched.
+      await pool.query(ensureDaysQuery, [monthId]);
       const query = `
         SELECT 
           cd.id,
@@ -275,13 +311,6 @@ class CalendarDaysService {
         WHERE cd.month_id = $1
         ORDER BY cd.day_number ASC
       `;
-      // UUID validation for monthId
-      const uuidRegex =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (monthId === "whole_year" || !uuidRegex.test(monthId)) {
-        return [];
-      }
-
       const result = await pool.query(query, [monthId, dateFormat]);
       return result.rows;
     } catch (err) {
