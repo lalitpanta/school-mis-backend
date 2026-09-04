@@ -1,31 +1,51 @@
-// Generate BS calendar reference for 2082-2120
-// Deterministic pattern: Month 1-5: mixed 30-32 days, Month 6-9: 29-30 days, Month 10-12: 30 days
-// Sequential AD dates calculated from base epoch
-const BS_EPOCH_AD = new Date(2025, 3, 14); // BS 2082 Baisakh 1 = AD 2025-04-14
+// Keep this table aligned with frontend/src/utils/bsCalendar.js. Calendar days
+// and sidebar rendering must derive weekday positions from the same data.
+const BS_MONTH_LENGTHS = {
+  2079: [31, 32, 31, 32, 31, 30, 30, 29, 30, 29, 30, 30],
+  2080: [31, 31, 32, 32, 31, 30, 30, 30, 29, 29, 30, 30],
+  2081: [31, 31, 32, 32, 31, 30, 30, 30, 29, 30, 29, 31],
+  2082: [30, 32, 31, 32, 31, 30, 30, 30, 29, 30, 30, 30],
+  2083: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30],
+  2084: [31, 31, 32, 32, 31, 30, 30, 29, 30, 29, 30, 30],
+  2085: [31, 32, 31, 32, 31, 30, 30, 29, 30, 29, 30, 30],
+  2086: [31, 31, 32, 31, 31, 30, 30, 29, 30, 30, 29, 31],
+};
+
+const BS_YEAR_START_AD = {
+  2079: '2022-04-14',
+  2080: '2023-04-14',
+  2081: '2024-04-13',
+  2082: '2025-04-14',
+  2083: '2026-04-14',
+  2084: '2027-04-14',
+  2085: '2028-04-13',
+  2086: '2029-04-14',
+};
 
 const generateBsCalendarReference = () => {
   const reference = {};
-  const monthPattern = [30, 32, 31, 32, 31, 30, 30, 30, 29, 30, 30, 30]; // Deterministic days per month
-  
-  let currentADDate = new Date(BS_EPOCH_AD);
-  
   for (let year = 2082; year <= 2120; year++) {
     reference[year] = {};
-    
+    const lengths = BS_MONTH_LENGTHS[year] || BS_MONTH_LENGTHS[2086];
+    const currentADDate = BS_YEAR_START_AD[year]
+      ? new Date(`${BS_YEAR_START_AD[year]}T00:00:00Z`)
+      : new Date(reference[year - 1][12].adEndDate);
+    if (!BS_YEAR_START_AD[year]) {
+      currentADDate.setUTCDate(currentADDate.getUTCDate() + 1);
+    }
+
     for (let month = 1; month <= 12; month++) {
-      const daysInMonth = monthPattern[month - 1];
+      const daysInMonth = lengths[month - 1];
       const adStartDate = new Date(currentADDate);
-      
-      // Format AD date as YYYY-MM-DD
-      const adStartDateStr = adStartDate.toISOString().split('T')[0];
-      
+      const adEndDate = new Date(adStartDate);
+      adEndDate.setUTCDate(adEndDate.getUTCDate() + daysInMonth - 1);
+
       reference[year][month] = {
         daysInMonth,
-        adStartDate: adStartDateStr,
+        adStartDate: adStartDate.toISOString().split('T')[0],
+        adEndDate: adEndDate.toISOString().split('T')[0],
       };
-      
-      // Move to next month's start date
-      currentADDate = new Date(adStartDate.getTime() + daysInMonth * 24 * 60 * 60 * 1000);
+      currentADDate.setUTCDate(currentADDate.getUTCDate() + daysInMonth);
     }
   }
   
