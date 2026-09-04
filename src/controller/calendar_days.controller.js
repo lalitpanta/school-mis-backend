@@ -28,7 +28,7 @@ class CalendarDaysController {
       const calendarDays = await calendarDaysService.generateCalendarDays(
         month_id,
         monthData,
-        req
+        req,
       );
 
       return res.status(201).json({
@@ -58,7 +58,7 @@ class CalendarDaysController {
       const calendarDays = await calendarDaysService.getCalendarWithDates(
         month_id,
         date_format,
-        req
+        req,
       );
 
       if (calendarDays.length === 0) {
@@ -92,7 +92,11 @@ class CalendarDaysController {
         });
       }
 
-      const result = await calendarDaysService.assignDayType(id, day_type_id, req);
+      const result = await calendarDaysService.assignDayType(
+        id,
+        day_type_id,
+        req,
+      );
 
       if (!result) {
         return res.status(404).json({
@@ -128,7 +132,10 @@ class CalendarDaysController {
         });
       }
 
-      const results = await calendarDaysService.bulkAssignDayTypes(assignments, req);
+      const results = await calendarDaysService.bulkAssignDayTypes(
+        assignments,
+        req,
+      );
 
       return res.status(200).json({
         message: `Assigned day types to ${results.length} calendar days`,
@@ -143,7 +150,7 @@ class CalendarDaysController {
    * Assign day type to all days with specific day_of_week in a month or year
    * POST /api/calendar-days/assign-by-weekday
    * Body: { month_id: "xxx" OR year_id: "xxx", day_of_week: "Sunday", day_type_id: "yyy" }
-   * 
+   *
    * Priority: month_id takes precedence over year_id
    */
   assignDayTypeByWeekday = async (req, res, next) => {
@@ -151,12 +158,12 @@ class CalendarDaysController {
       const { month_id, year_id, day_of_week, day_type_id } = req.body;
 
       // Validate required fields
-      if (!day_of_week || !day_type_id) {
+      if (!day_of_week || day_type_id === undefined) {
         return res.status(400).json({
           error: "day_of_week and day_type_id are required",
         });
       }
-      
+
       // Either month_id or year_id must be provided (month_id takes priority)
       if (!month_id && !year_id) {
         return res.status(400).json({
@@ -182,11 +189,11 @@ class CalendarDaysController {
 
       // Call service with explicit null handling
       const results = await calendarDaysService.assignDayTypeByDayOfWeek(
-        month_id || null,  // Explicitly pass null if not provided
-        year_id || null,   // Explicitly pass null if not provided
+        month_id || null, // Explicitly pass null if not provided
+        year_id || null, // Explicitly pass null if not provided
         day_of_week,
         day_type_id,
-        req
+        req,
       );
 
       return res.status(200).json({
@@ -327,7 +334,10 @@ class CalendarDaysController {
         });
       }
 
-      const calendarDays = await calendarDaysService.getCalendarDaysByYear(year_id, req);
+      const calendarDays = await calendarDaysService.getCalendarDaysByYear(
+        year_id,
+        req,
+      );
 
       return res.status(200).json({
         message: "Calendar days for year retrieved successfully",

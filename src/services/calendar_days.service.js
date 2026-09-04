@@ -297,9 +297,10 @@ class CalendarDaysService {
           dc.day_type,
           cat.category_name,
           mc.month_name,
+          y.year_label_bs,
           CASE
             WHEN $2 = 'BS' THEN
-              substring(mc.month_start_date_BS from 1 for 8) || LPAD((substring(mc.month_start_date_BS from 9 for 2)::integer + cd.day_number - 1)::text, 2, '0')
+              cd.day_number::text || ' ' || mc.month_name || ' ' || COALESCE(NULLIF(split_part(y.year_label_bs, '/', 1), ''), y.year_label)
             ELSE
               TO_CHAR((mc.month_start_date_AD::DATE + (cd.day_number - 1)::integer * INTERVAL '1 day')::DATE, 'YYYY-MM-DD')
           END as date,
@@ -308,6 +309,7 @@ class CalendarDaysService {
         LEFT JOIN "day_classification" dc ON cd.day_type_id = dc.id
         LEFT JOIN "day_category" cat ON dc.category_id = cat.id
         JOIN "month_class_data" mc ON cd.month_id = mc.id
+        JOIN "year" y ON mc.year_id = y.id
         WHERE cd.month_id = $1
         ORDER BY cd.day_number ASC
       `;
@@ -356,6 +358,24 @@ class CalendarDaysService {
       }
       // Otherwise use yearId for year-level assignment
       else if (yearId && yearId !== null) {
+        await pool.query(
+          `
+          INSERT INTO "calendar_days" (year_id, month_id, day_number, day_of_week)
+          SELECT mc.year_id, mc.id, days.day_number, TO_CHAR(days.day_date, 'FMDay')
+          FROM "month_class_data" mc
+          CROSS JOIN LATERAL (
+            SELECT row_number() OVER (ORDER BY generated_date)::integer AS day_number,
+                   generated_date::date AS day_date
+            FROM generate_series(mc.month_start_date_AD::date, mc.month_end_date_AD::date, interval '1 day') AS generated_days(generated_date)
+          ) days
+          WHERE mc.year_id = $1
+            AND NOT EXISTS (
+              SELECT 1 FROM "calendar_days" existing_day
+              WHERE existing_day.month_id = mc.id AND existing_day.day_number = days.day_number
+            )
+        `,
+          [yearId],
+        );
         query = `
           UPDATE "calendar_days"
           SET day_type_id = $1, updated_at = CURRENT_TIMESTAMP
