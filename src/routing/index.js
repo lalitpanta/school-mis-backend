@@ -4,6 +4,8 @@ const {
   authenticateToken,
   requireAdmin,
   requireTenant,
+  requireTenantUser,
+  requirePermission,
   requireModule,
   requireAdminOrTenantModule,
   attachTenantContext,
@@ -215,8 +217,8 @@ masterRouter.use(
 masterRouter.use(
   "/fees",
   authenticateToken,
-  requireTenant,
   attachTenantContext,
+  requireTenantUser,
   require("./v1/fee.routing")
 );
 

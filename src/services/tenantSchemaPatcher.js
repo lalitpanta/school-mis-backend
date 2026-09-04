@@ -1,4 +1,5 @@
 const { centralPool, getTenantPool } = require("../config/tenantDb");
+const feeStructureMigration = require("../../migrations/20260904000000-add-fee-structure-module");
 
 /**
  * Tenant Schema Patcher Service
@@ -278,6 +279,10 @@ async function patchAllTenantSchemas() {
               "school_profile",
             ]);
           }
+
+          await feeStructureMigration.up({
+            runSql: (sql) => tenantClient.query(sql),
+          });
 
           console.log(`     ✅ Schema updated successfully`);
           patchedCount++;

@@ -52,6 +52,26 @@ function requireTenant(req, res, next) {
   next();
 }
 
+function requireTenantUser(req, res, next) {
+  if (!['tenant', 'staff', 'system_admin'].includes(req.user.type) || !req.tenantPool) {
+    return res.status(403).json({ success: false, message: "Tenant access required" });
+  }
+  next();
+}
+
+function requirePermission(...requiredPermissions) {
+  return (req, res, next) => {
+    if (req.user.type === 'tenant' || req.user.type === 'system_admin') return next();
+    const permissions = Array.isArray(req.user.permissions) ? req.user.permissions : [];
+    const roles = (Array.isArray(req.user.roles) ? req.user.roles : []).map((role) => String(role).toLowerCase());
+    const privilegedRole = roles.some((role) => ['admin', 'accountant', 'finance manager'].includes(role));
+    if (!privilegedRole && !requiredPermissions.some((permission) => permissions.includes(permission))) {
+      return res.status(403).json({ success: false, message: "Permission denied" });
+    }
+    next();
+  };
+}
+
 /**
  * Middleware to enforce module access for tenant users
  */
@@ -91,11 +111,11 @@ async function attachTenantContext(req, res, next) {
   try {
     const { getTenantPool } = require("../config/tenantDb");
 
-    if (req.user.type === "tenant") {
-      // For tenant, database name and ID are already in token
+    if (req.user.type === "tenant" || req.user.type === "staff") {
       req.tenantId = req.user.id;
+      if (req.user.type === "staff") req.tenantId = req.user.tenantId;
       req.tenantDatabaseName = req.user.databaseName;
-      req.tenantPool = getTenantPool(req.user.id, req.user.databaseName);
+      req.tenantPool = getTenantPool(req.tenantId, req.user.databaseName);
     } else if (req.user.type === "system_admin") {
       // For admin, check X-Tenant-ID header if accessing tenant-specific endpoints
       const tenantIdFromHeader = req.headers["x-tenant-id"];
@@ -122,6 +142,8 @@ module.exports = {
   authenticateToken,
   requireAdmin,
   requireTenant,
+  requireTenantUser,
+  requirePermission,
   requireModule,
   requireAdminOrTenantModule,
   attachTenantContext,

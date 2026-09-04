@@ -1,5 +1,4 @@
 const { getTenantPool } = require("../config/tenantDb");
-const { getBsMonthInfo } = require("./bsCalendar.service");
 
 class CalendarDaysService {
   /**
@@ -260,31 +259,6 @@ class CalendarDaysService {
         return [];
       }
 
-      const monthInfoResult = await pool.query(`
-        SELECT mc.id, mc.bs_month_index, y.year_label_bs
-        FROM "month_class_data" mc
-        JOIN "year" y ON y.id = mc.year_id
-        WHERE mc.id = $1
-      `, [monthId]);
-      const monthInfo = monthInfoResult.rows[0];
-      const bsYear = Number.parseInt(monthInfo?.year_label_bs, 10);
-      if (monthInfo?.bs_month_index && Number.isInteger(bsYear)) {
-        try {
-          const bsReference = getBsMonthInfo(bsYear, monthInfo.bs_month_index);
-          const start = new Date(`${bsReference.adStartDate}T00:00:00Z`);
-          const end = new Date(start);
-          end.setUTCDate(end.getUTCDate() + bsReference.daysInMonth - 1);
-          await pool.query(`
-            UPDATE "month_class_data"
-            SET month_start_date_AD = $1::date,
-                month_end_date_AD = $2::date
-            WHERE id = $3
-          `, [bsReference.adStartDate, end.toISOString().slice(0, 10), monthId]);
-        } catch {
-          // Leave unsupported future BS years on their stored database dates.
-        }
-      }
-
       const ensureDaysQuery = `
         INSERT INTO "calendar_days" (year_id, month_id, day_number, day_of_week)
         SELECT
@@ -315,15 +289,6 @@ class CalendarDaysService {
       // Older months may not have generated calendar_days rows yet. Create only
       // missing rows so existing assignments remain untouched.
       await pool.query(ensureDaysQuery, [monthId]);
-      await pool.query(`
-        UPDATE "calendar_days" cd
-        SET day_of_week = TO_CHAR(
-          mc.month_start_date_AD::date + (cd.day_number - 1) * interval '1 day',
-          'FMDay'
-        )
-        FROM "month_class_data" mc
-        WHERE mc.id = cd.month_id AND cd.month_id = $1
-      `, [monthId]);
       const query = `
         SELECT
           cd.id,

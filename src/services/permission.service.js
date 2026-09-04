@@ -135,6 +135,24 @@ class PermissionService {
       const pool = req?.tenantPool || require("../config/db");
 
       const defaultPermissions = [
+        {
+          permission_key: "fees.view",
+          permission_name: "View Fees",
+          resource: "fees",
+          action: "view",
+        },
+        {
+          permission_key: "fees.collect",
+          permission_name: "Collect Fees",
+          resource: "fees",
+          action: "collect",
+        },
+        {
+          permission_key: "fees.manage",
+          permission_name: "Manage Fee Structures",
+          resource: "fees",
+          action: "manage",
+        },
         // Dashboard permissions
         {
           permission_key: "dashboard.view",

@@ -1053,6 +1053,9 @@ async function staffLogin(tenantSlug, email, password) {
         "results",
         "result_portal",
         "daily_reports",
+        "fee_management",
+        "fees",
+        "accounts",
       ]);
 
       const userModules = new Set();

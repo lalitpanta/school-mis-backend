@@ -1,6 +1,58 @@
 const feeService = require("../services/fee.service");
 
 class FeeController {
+  listGroups = async (req, res, next) => {
+    try { res.json({ success: true, data: await feeService.listGroups(req) }); } catch (err) { next(err); }
+  };
+
+  getStructure = async (req, res, next) => {
+    try { res.json({ success: true, data: await feeService.getFeeStructure(req.params.id, req) }); } catch (err) { next(err); }
+  };
+
+  createManagedStructure = async (req, res, next) => {
+    try { res.status(201).json({ success: true, data: await feeService.createManagedStructure(req.body, req) }); } catch (err) { next(err); }
+  };
+
+  updateManagedStructure = async (req, res, next) => {
+    try { res.json({ success: true, data: await feeService.updateManagedStructure(req.params.id, req.body, req) }); } catch (err) { next(err); }
+  };
+
+  setStructureStatus = async (req, res, next) => {
+    try { res.json({ success: true, data: await feeService.setStructureStatus(req.params.id, req.body.status, req) }); } catch (err) { next(err); }
+  };
+
+  duplicateStructure = async (req, res, next) => {
+    try { res.status(201).json({ success: true, data: await feeService.duplicateStructure(req.params.id, req) }); } catch (err) { next(err); }
+  };
+
+  assignStructure = async (req, res, next) => {
+    try { res.status(201).json({ success: true, data: await feeService.assignStructure(req.body, req) }); } catch (err) { next(err); }
+  };
+
+  createInvoice = async (req, res, next) => {
+    try { res.status(201).json({ success: true, data: await feeService.createInvoice(req.body, req) }); } catch (err) { next(err); }
+  };
+
+  listInvoices = async (req, res, next) => {
+    try { res.json({ success: true, data: await feeService.listInvoices(req) }); } catch (err) { next(err); }
+  };
+
+  recordInvoicePayment = async (req, res, next) => {
+    try { res.status(201).json({ success: true, data: await feeService.recordInvoicePayment(req.params.id, req.body, req) }); } catch (err) { next(err); }
+  };
+
+  listAudit = async (req, res, next) => {
+    try { res.json({ success: true, data: await feeService.listAudit(req.query.entity_id, req) }); } catch (err) { next(err); }
+  };
+
+  requestReceiptCancellation = async (req, res, next) => {
+    try { res.status(201).json({ success: true, data: await feeService.requestReceiptCancellation(req.params.id, req.body.reason, req) }); } catch (err) { next(err); }
+  };
+
+  approveReceiptCancellation = async (req, res, next) => {
+    try { res.json({ success: true, data: await feeService.approveReceiptCancellation(req.params.id, req) }); } catch (err) { next(err); }
+  };
+
   getCategories = async (req, res, next) => {
     try {
       const data = await feeService.getCategories(req);
@@ -45,6 +97,18 @@ class FeeController {
     } catch (err) {
       next(err);
     }
+  };
+
+  lookupStudents = async (req, res, next) => {
+    try { res.json({ success: true, data: await feeService.lookupStudents(req.query.search, req) }); } catch (err) { next(err); }
+  };
+
+  getStudentDue = async (req, res, next) => {
+    try { res.json({ success: true, data: await feeService.getStudentDue(req.params.studentId, req) }); } catch (err) { next(err); }
+  };
+
+  generateStudentDue = async (req, res, next) => {
+    try { res.status(201).json({ success: true, data: await feeService.generateStudentDue(req.params.studentId, req) }); } catch (err) { next(err); }
   };
 
   createStudentFee = async (req, res, next) => {
