@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 var dbm;
 var type;
@@ -11,14 +11,18 @@ exports.setup = function (options, seedLink) {
 };
 
 exports.up = function (db) {
-  return db.runSql(`SELECT to_regclass('fee_structures') AS fee_structures`).then((result) => {
-    if (!result.rows?.[0]?.fee_structures) return null;
-    return db.runSql(`
+  return db
+    .runSql(`SELECT to_regclass('fee_structures') AS fee_structures`)
+    .then((result) => {
+      if (!result.rows?.[0]?.fee_structures) return null;
+      return db.runSql(`
     CREATE SEQUENCE IF NOT EXISTS fee_receipt_number_seq;
+    CREATE SEQUENCE IF NOT EXISTS fee_invoice_number_seq;
     ALTER TABLE fee_receipts ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(120);
     ALTER TABLE fee_receipts ADD COLUMN IF NOT EXISTS payment_reference VARCHAR(180);
     ALTER TABLE fee_receipts ADD COLUMN IF NOT EXISTS collector_id UUID;
     ALTER TABLE fee_receipts ADD COLUMN IF NOT EXISTS remarks TEXT;
+    ALTER TABLE fee_categories ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE fee_payment_items ADD COLUMN IF NOT EXISTS fee_rule_id INTEGER;
     ALTER TABLE fee_payment_items ADD COLUMN IF NOT EXISTS allocation_amount NUMERIC(14,2);
     ALTER TABLE student_fees ADD COLUMN IF NOT EXISTS fee_rule_id INTEGER;
@@ -176,6 +180,7 @@ exports.up = function (db) {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+    ALTER TABLE fee_invoices ADD COLUMN IF NOT EXISTS invoice_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
     CREATE TABLE IF NOT EXISTS fee_invoice_items (
       id SERIAL PRIMARY KEY,
       invoice_id INTEGER NOT NULL REFERENCES fee_invoices(id) ON DELETE RESTRICT,
@@ -272,7 +277,7 @@ exports.up = function (db) {
       END IF;
     END $$;
     `);
-  });
+    });
 };
 
 exports.down = function (db) {
@@ -282,6 +287,8 @@ exports.down = function (db) {
       fee_invoice_items, fee_invoices, fee_assignments, fee_fine_rules,
       fee_discounts, fee_levies, fee_schedules, fee_rules, fee_groups,
       fee_structure_versions;
+    DROP SEQUENCE IF EXISTS fee_invoice_number_seq;
+    DROP SEQUENCE IF EXISTS fee_receipt_number_seq;
   `);
 };
 

@@ -219,7 +219,7 @@ masterRouter.use(
   authenticateToken,
   attachTenantContext,
   requireTenantUser,
-  require("./v1/fee.routing")
+  require("./v1/fee.routing"),
 );
 
 masterRouter.use(
@@ -228,7 +228,7 @@ masterRouter.use(
   requireTenant,
   attachTenantContext,
   requireModule("leave_management"),
-  require("./v1/leave.routing")
+  require("./v1/leave.routing"),
 );
 
 masterRouter.use(
@@ -236,7 +236,7 @@ masterRouter.use(
   authenticateToken,
   requireTenant,
   attachTenantContext,
-  require("./v1/dashboard.routing")
+  require("./v1/dashboard.routing"),
 );
 
 // Accounts - no module guard (same pattern as /fees, /departments)
@@ -245,7 +245,7 @@ masterRouter.use(
   authenticateToken,
   requireTenant,
   attachTenantContext,
-  require("./v1/accounts.routing")
+  require("./v1/accounts.routing"),
 );
 
 // Health check

@@ -53,20 +53,39 @@ function requireTenant(req, res, next) {
 }
 
 function requireTenantUser(req, res, next) {
-  if (!['tenant', 'staff', 'system_admin'].includes(req.user.type) || !req.tenantPool) {
-    return res.status(403).json({ success: false, message: "Tenant access required" });
+  if (
+    !["tenant", "staff", "system_admin"].includes(req.user.type) ||
+    !req.tenantPool
+  ) {
+    return res
+      .status(403)
+      .json({ success: false, message: "Tenant access required" });
   }
   next();
 }
 
 function requirePermission(...requiredPermissions) {
   return (req, res, next) => {
-    if (req.user.type === 'tenant' || req.user.type === 'system_admin') return next();
-    const permissions = Array.isArray(req.user.permissions) ? req.user.permissions : [];
-    const roles = (Array.isArray(req.user.roles) ? req.user.roles : []).map((role) => String(role).toLowerCase());
-    const privilegedRole = roles.some((role) => ['admin', 'accountant', 'finance manager'].includes(role));
-    if (!privilegedRole && !requiredPermissions.some((permission) => permissions.includes(permission))) {
-      return res.status(403).json({ success: false, message: "Permission denied" });
+    if (req.user.type === "tenant" || req.user.type === "system_admin")
+      return next();
+    const permissions = Array.isArray(req.user.permissions)
+      ? req.user.permissions
+      : [];
+    const roles = (Array.isArray(req.user.roles) ? req.user.roles : []).map(
+      (role) => String(role).toLowerCase(),
+    );
+    const privilegedRole = roles.some((role) =>
+      ["admin", "accountant", "finance manager"].includes(role),
+    );
+    if (
+      !privilegedRole &&
+      !requiredPermissions.some((permission) =>
+        permissions.includes(permission),
+      )
+    ) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Permission denied" });
     }
     next();
   };

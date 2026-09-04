@@ -6,6 +6,7 @@ const cors = require("cors");
 const path = require("path");
 const { initializeCentralDatabase } = require("../config/initCentralDb");
 const { loadTenantConnections } = require("../config/tenantDb");
+const { patchAllTenantSchemas } = require("../services/tenantSchemaPatcher");
 const app = express();
 const StartServer = require("./startServer");
 const routes = require("../routing/index");
@@ -94,8 +95,12 @@ async function initApp() {
   try {
     await initializeCentralDatabase();
     await loadTenantConnections();
+    await patchAllTenantSchemas();
   } catch (err) {
-    console.error("Central database initialization failed:", err.message);
+    console.error(
+      "Database initialization or tenant schema patch failed:",
+      err,
+    );
   }
 
   if (!enableAutoMigrate) {
@@ -107,19 +112,23 @@ async function initApp() {
   }
 
   console.log("Running DB migrations before starting server...");
-  exec("npx db-migrate up --env " + (process.env.NODE_ENV === "production" ? "production" : "dev"), { cwd: migrationsCwd }, (err, stdout, stderr) => {
-    if (err) {
-      console.error("Migration error:", err);
-      console.error(stderr);
-      // still start the app even if migrations fail, to allow manual intervention
+  exec(
+    "npx db-migrate up --env " +
+      (process.env.NODE_ENV === "production" ? "production" : "dev"),
+    { cwd: migrationsCwd },
+    (err, stdout, stderr) => {
+      if (err) {
+        console.error("Migration error:", err);
+        console.error(stderr);
+        // still start the app even if migrations fail, to allow manual intervention
+        startApp();
+        return;
+      }
+      console.log(stdout);
+      console.log("Migrations completed. Starting server.");
       startApp();
-      return;
-    }
-    console.log(stdout);
-    console.log("Migrations completed. Starting server.");
-    startApp();
-  });
+    },
+  );
 }
 
 initApp();
-

@@ -1710,4 +1710,3 @@ module.exports = {
   permanentlyDeleteTenant,
   getTenantBackup,
 };
-
