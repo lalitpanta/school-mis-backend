@@ -14,6 +14,11 @@ router.post(
   requirePermission("accounts.manage"),
   ctrl.createAccount,
 );
+router.patch(
+  "/accounting/accounts/:id",
+  requirePermission("accounts.manage"),
+  ctrl.updateAccount,
+);
 router.post(
   "/accounting/journals",
   requirePermission("accounts.post"),
@@ -48,6 +53,31 @@ router.get(
   "/accounting/journals",
   requirePermission("accounts.view"),
   ctrl.listJournals,
+);
+router.get(
+  "/accounting/journals/:id",
+  requirePermission("accounts.view"),
+  ctrl.getJournal,
+);
+router.get(
+  "/accounting/ledger",
+  requirePermission("accounts.view"),
+  ctrl.getLedger,
+);
+router.get(
+  "/accounting/vouchers",
+  requirePermission("accounts.view"),
+  ctrl.listVouchers,
+);
+router.post(
+  "/accounting/vouchers",
+  requirePermission("accounts.manage"),
+  ctrl.createVoucher,
+);
+router.post(
+  "/accounting/vouchers/:id/post",
+  requirePermission("accounts.post"),
+  ctrl.postVoucher,
 );
 router.post(
   "/accounting/journals/:id/void",

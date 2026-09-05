@@ -293,9 +293,9 @@ class AccountsService {
       `
       SELECT COUNT(*) AS total
       FROM accounts_transactions
-      WHERE ${where.slice(0, -2).join(" AND ") || "fiscal_year = $1"}
+      WHERE ${where.join(" AND ")}
     `,
-      params.slice(0, -2),
+      params.slice(0, params.length - 2),
     );
 
     return {

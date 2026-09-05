@@ -1350,7 +1350,7 @@ class FeeService {
           amount: centsToMoney(totalCents),
           payment_mode: ledgerMode,
         },
-        `invoice_payment:${payment.rows[0].id}`,
+        transactionRes.rows[0].id,
         req,
       );
       await this.audit(

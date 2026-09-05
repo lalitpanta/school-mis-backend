@@ -20,6 +20,15 @@ class AccountsController {
     }
   };
 
+  updateAccount = async (req, res, next) => {
+    try {
+      const data = await accountingService.updateAccount(req.params.id, req.body, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   postJournal = async (req, res, next) => {
     try {
       const data = await accountingService.withTransaction(
@@ -87,6 +96,51 @@ class AccountsController {
   listJournals = async (req, res, next) => {
     try {
       const data = await accountingService.listJournals(req.query, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getJournal = async (req, res, next) => {
+    try {
+      const data = await accountingService.getJournal(req.params.id, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getLedger = async (req, res, next) => {
+    try {
+      const data = await accountingService.getLedger(req.query, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listVouchers = async (req, res, next) => {
+    try {
+      const data = await accountingService.listVouchers(req.query, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createVoucher = async (req, res, next) => {
+    try {
+      const data = await accountingService.createVoucher(req.body, req);
+      res.status(201).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  postVoucher = async (req, res, next) => {
+    try {
+      const data = await accountingService.postVoucher(req.params.id, req);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);

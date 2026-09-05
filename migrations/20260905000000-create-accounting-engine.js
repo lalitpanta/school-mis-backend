@@ -53,9 +53,35 @@ exports.up = function (db) {
       credit NUMERIC(14,2) NOT NULL DEFAULT 0,
       CHECK (debit >= 0 AND credit >= 0 AND NOT (debit > 0 AND credit > 0))
     );
+    CREATE TABLE IF NOT EXISTS accounting_vouchers (
+      id SERIAL PRIMARY KEY,
+      voucher_number VARCHAR(40) NOT NULL UNIQUE,
+      voucher_type VARCHAR(20) NOT NULL CHECK (voucher_type IN ('receipt','payment','contra','sales','purchase','journal')),
+      voucher_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      narration TEXT,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','posted','void','reversed')),
+      journal_id INTEGER REFERENCES accounting_journals(id),
+      fiscal_year VARCHAR(20),
+      created_by UUID,
+      posted_by UUID,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS accounting_voucher_lines (
+      id SERIAL PRIMARY KEY,
+      voucher_id INTEGER NOT NULL REFERENCES accounting_vouchers(id) ON DELETE CASCADE,
+      account_id INTEGER NOT NULL REFERENCES accounting_accounts(id),
+      description TEXT,
+      debit NUMERIC(14,2) NOT NULL DEFAULT 0,
+      credit NUMERIC(14,2) NOT NULL DEFAULT 0,
+      CHECK (debit >= 0 AND credit >= 0 AND NOT (debit > 0 AND credit > 0))
+    );
+    CREATE SEQUENCE IF NOT EXISTS accounting_voucher_number_seq;
     CREATE INDEX IF NOT EXISTS idx_accounting_journals_date ON accounting_journals(journal_date);
     CREATE INDEX IF NOT EXISTS idx_accounting_journals_fiscal_year ON accounting_journals(fiscal_year);
     CREATE INDEX IF NOT EXISTS idx_accounting_journal_lines_account ON accounting_journal_lines(account_id);
+    CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_date ON accounting_vouchers(voucher_date);
+    CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_status ON accounting_vouchers(status);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_accounting_journal_source
       ON accounting_journals(source_type, source_id)
       WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
@@ -73,6 +99,9 @@ exports.up = function (db) {
 exports.down = function (db) {
   return db.runSql(`
     DROP TABLE IF EXISTS accounting_journal_lines;
+    DROP TABLE IF EXISTS accounting_voucher_lines;
+    DROP TABLE IF EXISTS accounting_vouchers;
+    DROP SEQUENCE IF EXISTS accounting_voucher_number_seq;
     DROP TABLE IF EXISTS accounting_journals;
     DROP TABLE IF EXISTS accounting_fiscal_years;
     DROP TABLE IF EXISTS accounting_accounts;
