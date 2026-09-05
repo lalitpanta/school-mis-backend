@@ -4,6 +4,8 @@
  * Uses req.tenantPool â€” the per-tenant PostgreSQL pool injected by middleware.
  */
 
+const accountingService = require('./accounting.service');
+
 class AccountsService {
   // â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -252,6 +254,7 @@ class AccountsService {
   async createTransaction(payload, req) {
     const db = req.tenantPool;
     await this._ensureTables(db);
+    await accountingService.ensureTables(db);
 
     const {
       txn_date, particulars, sub_text, category, txn_type,
@@ -262,22 +265,37 @@ class AccountsService {
     const fy = fiscal_year || this._currentFiscalYear();
     const userId = req.user?.id || null;
 
-    const result = await db.query(`
-      INSERT INTO accounts_transactions
-        (txn_date, particulars, sub_text, category, txn_type,
-         amount, payment_mode, status, reference_id, student_id,
-         expense_category_id, fiscal_year, notes, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-      RETURNING *
-    `, [
-      txn_date || new Date().toISOString().split('T')[0],
-      particulars, sub_text || null, category, txn_type,
-      amount, payment_mode || 'cash', status || 'paid',
-      reference_id || null, student_id || null,
-      expense_category_id || null, fy, notes || null, userId,
-    ]);
+    if (!['income', 'expense'].includes(txn_type)) {
+      throw Object.assign(new Error('Transaction type must be income or expense'), { status: 400 });
+    }
+    if (!amount || Number(amount) <= 0) {
+      throw Object.assign(new Error('Transaction amount must be positive'), { status: 400 });
+    }
 
-    return result.rows[0];
+    return accountingService.withTransaction(db, async (client) => {
+      const result = await client.query(`
+        INSERT INTO accounts_transactions
+          (txn_date, particulars, sub_text, category, txn_type,
+           amount, payment_mode, status, reference_id, student_id,
+           expense_category_id, fiscal_year, notes, created_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        RETURNING *
+      `, [
+        txn_date || new Date().toISOString().split('T')[0],
+        particulars, sub_text || null, category, txn_type,
+        amount, payment_mode || 'cash', status || 'paid',
+        reference_id || null, student_id || null,
+        expense_category_id || null, fy, notes || null, userId,
+      ]);
+      const transaction = result.rows[0];
+      await accountingService.postLegacyTransaction(
+        client,
+        { ...payload, txn_date: transaction.txn_date, fiscal_year: fy },
+        transaction.id,
+        req,
+      );
+      return transaction;
+    });
   }
 
   async updateTransaction(id, payload, req) {
@@ -424,12 +442,59 @@ class AccountsService {
 
   async updatePayrollStatus(id, status, req) {
     const db = req.tenantPool;
-    const result = await db.query(`
-      UPDATE accounts_payroll SET status = $1, updated_at = NOW()
-      WHERE id = $2 RETURNING *
-    `, [status, id]);
-    if (!result.rows.length) throw new Error('Payroll record not found');
-    return result.rows[0];
+    await this._ensureTables(db);
+    await accountingService.ensureTables(db);
+    if (!['pending', 'paid', 'cancelled'].includes(status)) {
+      throw Object.assign(new Error('Invalid payroll status'), { status: 400 });
+    }
+
+    return accountingService.withTransaction(db, async (client) => {
+      const current = await client.query(
+        'SELECT * FROM accounts_payroll WHERE id = $1 FOR UPDATE',
+        [id],
+      );
+      if (!current.rows.length) throw new Error('Payroll record not found');
+      const payroll = current.rows[0];
+      if (payroll.status === status) return payroll;
+
+      const result = await client.query(`
+        UPDATE accounts_payroll SET status = $1, payment_date = CASE WHEN $1 = 'paid' THEN COALESCE(payment_date, CURRENT_DATE) ELSE payment_date END, updated_at = NOW()
+        WHERE id = $2 RETURNING *
+      `, [status, id]);
+      const updated = result.rows[0];
+
+      if (status === 'paid') {
+        const transaction = await client.query(`
+          INSERT INTO accounts_transactions
+            (txn_date, particulars, category, txn_type, amount, payment_mode, status, fiscal_year, created_by, notes)
+          VALUES (COALESCE($1, CURRENT_DATE), $2, 'Staff Salaries', 'expense', $3, $4, 'paid', $5, $6, $7)
+          RETURNING id
+        `, [
+          updated.payment_date,
+          `Payroll payment - ${updated.employee_name}`,
+          updated.net_salary,
+          updated.payment_mode || 'bank',
+          updated.fiscal_year || this._currentFiscalYear(),
+          req.user?.id || null,
+          updated.notes || null,
+        ]);
+        await accountingService.postLegacyTransaction(
+          client,
+          {
+            txn_date: updated.payment_date,
+            particulars: `Payroll payment - ${updated.employee_name}`,
+            category: 'Staff Salaries',
+            txn_type: 'expense',
+            amount: updated.net_salary,
+            payment_mode: updated.payment_mode || 'bank',
+            fiscal_year: updated.fiscal_year || this._currentFiscalYear(),
+          },
+          `payroll:${transaction.rows[0].id}`,
+          req,
+        );
+      }
+      return updated;
+    });
   }
 
   // â”€â”€ Report export (CSV) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

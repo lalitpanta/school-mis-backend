@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require("uuid");
+const accountingService = require("./accounting.service");
 
 const PAYMENT_MODES = new Set([
   "cash",
@@ -591,8 +592,8 @@ class FeeService {
         `UPDATE fee_invoices SET amount_paid = $1, receipt_number = $2, status = CASE WHEN $1::numeric >= total THEN 'paid' ELSE 'partial' END, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
         [centsToMoney(paid), receipt, invoiceId],
       );
-      await client.query(
-        `INSERT INTO accounts_transactions (txn_date, particulars, category, txn_type, amount, payment_mode, status, reference_id, student_id, created_by, notes) VALUES (CURRENT_DATE, $1, 'Student Fees', 'income', $2, $3, 'paid', $4, $5, $6, $7)`,
+      const transactionRes = await client.query(
+        `INSERT INTO accounts_transactions (txn_date, particulars, category, txn_type, amount, payment_mode, status, reference_id, student_id, created_by, notes) VALUES (CURRENT_DATE, $1, 'Student Fees', 'income', $2, $3, 'paid', $4, $5, $6, $7) RETURNING id`,
         [
           `Invoice payment - ${receipt}`,
           centsToMoney(amountCents),
@@ -607,6 +608,24 @@ class FeeService {
           req.user?.id || null,
           payload.remarks || null,
         ],
+      );
+      await accountingService.postLegacyTransaction(
+        client,
+        {
+          txn_date: new Date().toISOString().slice(0, 10),
+          particulars: `Invoice payment - ${receipt}`,
+          category: "Student Fees",
+          txn_type: "income",
+          amount: centsToMoney(amountCents),
+          payment_mode: payload.payment_method === "cash"
+            ? "cash"
+            : payload.payment_method === "bank" || payload.payment_method === "cheque"
+              ? payload.payment_method
+              : "online",
+          fiscal_year: undefined,
+        },
+        transactionRes.rows[0].id,
+        req,
       );
       await client.query(
         `INSERT INTO fee_ledger_entries (student_id, receipt_id, entry_type, amount, reference, description, created_by) VALUES ($1,NULL,'payment',$2,$3,$4,$5)`,
@@ -728,8 +747,8 @@ class FeeService {
         `UPDATE fee_receipt_cancellations SET status = 'approved', approved_by = $1, approved_at = CURRENT_TIMESTAMP WHERE receipt_id = $2`,
         [req.user?.id || null, receiptId],
       );
-      await client.query(
-        `INSERT INTO accounts_transactions (txn_date, particulars, category, txn_type, amount, payment_mode, status, reference_id, student_id, created_by, notes) VALUES (CURRENT_DATE, $1, 'Fee Reversal', 'expense', $2, 'other', 'paid', $3, $4, $5, $6)`,
+      const transactionRes = await client.query(
+        `INSERT INTO accounts_transactions (txn_date, particulars, category, txn_type, amount, payment_mode, status, reference_id, student_id, created_by, notes) VALUES (CURRENT_DATE, $1, 'Fee Reversal', 'expense', $2, 'other', 'paid', $3, $4, $5, $6) RETURNING id`,
         [
           `Reversal - ${cancellation.rows[0].receipt_number}`,
           cancellation.rows[0].total_amount,
@@ -738,6 +757,19 @@ class FeeService {
           req.user?.id || null,
           cancellation.rows[0].reason,
         ],
+      );
+      await accountingService.postLegacyTransaction(
+        client,
+        {
+          txn_date: new Date().toISOString().slice(0, 10),
+          particulars: `Reversal - ${cancellation.rows[0].receipt_number}`,
+          category: "Fee Reversal",
+          txn_type: "expense",
+          amount: cancellation.rows[0].total_amount,
+          payment_mode: "other",
+        },
+        transactionRes.rows[0].id,
+        req,
       );
       await this.audit(
         client,
@@ -1294,8 +1326,8 @@ class FeeService {
           : payment_mode === "bank" || payment_mode === "cheque"
             ? payment_mode
             : "online";
-      await client.query(
-        `INSERT INTO accounts_transactions (txn_date, particulars, category, txn_type, amount, payment_mode, status, reference_id, student_id, created_by, notes) VALUES (CURRENT_DATE, $1, 'Student Fees', 'income', $2, $3, 'paid', $4, $5, $6, $7)`,
+      const transactionRes = await client.query(
+        `INSERT INTO accounts_transactions (txn_date, particulars, category, txn_type, amount, payment_mode, status, reference_id, student_id, created_by, notes) VALUES (CURRENT_DATE, $1, 'Student Fees', 'income', $2, $3, 'paid', $4, $5, $6, $7) RETURNING id`,
         [
           `Fee payment - ${receipt.receipt_number}`,
           centsToMoney(totalCents),
@@ -1305,6 +1337,19 @@ class FeeService {
           req.user?.id || null,
           remarks || null,
         ],
+      );
+      await accountingService.postLegacyTransaction(
+        client,
+        {
+          txn_date: new Date().toISOString().slice(0, 10),
+          particulars: `Fee payment - ${receipt.receipt_number}`,
+          category: "Student Fees",
+          txn_type: "income",
+          amount: centsToMoney(totalCents),
+          payment_mode: ledgerMode,
+        },
+        `invoice_payment:${payment.rows[0].id}`,
+        req,
       );
       await this.audit(
         client,

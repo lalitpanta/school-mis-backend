@@ -1,6 +1,99 @@
 const accountsService = require('../services/accounts.service');
+const accountingService = require('../services/accounting.service');
 
 class AccountsController {
+  listAccounts = async (req, res, next) => {
+    try {
+      const data = await accountingService.listAccounts(req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createAccount = async (req, res, next) => {
+    try {
+      const data = await accountingService.createAccount(req.body, req);
+      res.status(201).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  postJournal = async (req, res, next) => {
+    try {
+      const data = await accountingService.withTransaction(req.tenantPool, (client) =>
+        accountingService.postJournal(client, req.body, { createdBy: req.user?.id }),
+      );
+      res.status(201).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getTrialBalance = async (req, res, next) => {
+    try {
+      const data = await accountingService.getTrialBalance(req.query, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listFiscalYears = async (req, res, next) => {
+    try {
+      const data = await accountingService.listFiscalYears(req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createFiscalYear = async (req, res, next) => {
+    try {
+      const data = await accountingService.createFiscalYear(req.body, req);
+      res.status(201).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  closeFiscalYear = async (req, res, next) => {
+    try {
+      const data = await accountingService.closeFiscalYear(req.params.id, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listJournals = async (req, res, next) => {
+    try {
+      const data = await accountingService.listJournals(req.query, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  voidJournal = async (req, res, next) => {
+    try {
+      const data = await accountingService.voidJournal(req.params.id, req.body.reason, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  reverseJournal = async (req, res, next) => {
+    try {
+      const data = await accountingService.reverseJournal(req.params.id, req.body.reason, req);
+      res.status(201).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   // GET /accounts/overview?fiscal_year=2082/83
   getOverview = async (req, res, next) => {
     try {

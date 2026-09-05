@@ -410,6 +410,32 @@ class PermissionService {
           resource: "employee",
           action: "download_documents",
         },
+
+        // Accounting permissions
+        {
+          permission_key: "accounts.view",
+          permission_name: "View Accounts",
+          resource: "accounts",
+          action: "view",
+        },
+        {
+          permission_key: "accounts.manage",
+          permission_name: "Manage Accounting",
+          resource: "accounts",
+          action: "manage",
+        },
+        {
+          permission_key: "accounts.post",
+          permission_name: "Post Accounting Entries",
+          resource: "accounts",
+          action: "post",
+        },
+        {
+          permission_key: "accounts.close_period",
+          permission_name: "Close Fiscal Year",
+          resource: "accounts",
+          action: "close_period",
+        },
       ];
 
       for (const permission of defaultPermissions) {
