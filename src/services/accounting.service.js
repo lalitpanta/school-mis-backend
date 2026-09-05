@@ -65,6 +65,9 @@ class AccountingService {
       CREATE INDEX IF NOT EXISTS idx_accounting_journals_date ON accounting_journals(journal_date);
       CREATE INDEX IF NOT EXISTS idx_accounting_journals_fiscal_year ON accounting_journals(fiscal_year);
       CREATE INDEX IF NOT EXISTS idx_accounting_journal_lines_account ON accounting_journal_lines(account_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_accounting_journal_source
+        ON accounting_journals(source_type, source_id)
+        WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
     `);
 
     for (const [code, name, type] of DEFAULT_ACCOUNTS) {
@@ -122,6 +125,28 @@ class AccountingService {
     }
 
     const fiscalYear = payload.fiscal_year || currentFiscalYear();
+    const invalidLine = lines.some((line) => {
+      const debit = Number(line.debit || 0);
+      const credit = Number(line.credit || 0);
+      return !line.account_id || debit < 0 || credit < 0 || (debit === 0 && credit === 0) || (debit > 0 && credit > 0);
+    });
+    if (invalidLine) throw accountingError("Each journal line must have one positive debit or credit");
+
+    const fiscalYearStatus = await client.query(
+      "SELECT status FROM accounting_fiscal_years WHERE name = $1",
+      [fiscalYear],
+    );
+    if (fiscalYearStatus.rows[0]?.status === "closed") {
+      throw accountingError("This fiscal year is closed", 409);
+    }
+    const accountIds = lines.map((line) => line.account_id);
+    const accountCheck = await client.query(
+      "SELECT id FROM accounting_accounts WHERE id = ANY($1) AND is_active = TRUE",
+      [accountIds],
+    );
+    if (accountCheck.rows.length !== new Set(accountIds.map(String)).size) {
+      throw accountingError("Journal contains an inactive or unknown account");
+    }
     const journal = await client.query(
       `INSERT INTO accounting_journals
         (journal_number, journal_date, description, fiscal_year, source_type, source_id, created_by)
@@ -137,9 +162,6 @@ class AccountingService {
       ],
     );
     for (const line of lines) {
-      if (!line.account_id || Number(line.debit || 0) < 0 || Number(line.credit || 0) < 0) {
-        throw accountingError("Each journal line needs a valid account and amounts");
-      }
       await client.query(
         `INSERT INTO accounting_journal_lines (journal_id, account_id, description, debit, credit)
          VALUES ($1, $2, $3, $4, $5)`,
@@ -159,6 +181,14 @@ class AccountingService {
       [[debitCode, creditCode]],
     );
     const ids = Object.fromEntries(accounts.rows.map((row) => [row.code, row.id]));
+    if (!ids[debitCode] || !ids[creditCode]) {
+      throw accountingError("Default accounting accounts are not configured", 500);
+    }
+    const existing = await client.query(
+      "SELECT id FROM accounting_journals WHERE source_type = $1 AND source_id = $2",
+      ["accounts_transaction", String(sourceId)],
+    );
+    if (existing.rows.length) return this._journalWithLines(client, existing.rows[0].id);
     return this.postJournal(client, {
       journal_date: payload.txn_date,
       description: payload.particulars || "Accounts transaction",
@@ -202,7 +232,8 @@ class AccountingService {
     const fiscalYear = filters.fiscal_year || currentFiscalYear();
     const result = await req.tenantPool.query(
       `SELECT a.id, a.code, a.name, a.account_type,
-        COALESCE(SUM(l.debit), 0) AS debit, COALESCE(SUM(l.credit), 0) AS credit
+        COALESCE(SUM(l.debit) FILTER (WHERE j.id IS NOT NULL), 0) AS debit,
+        COALESCE(SUM(l.credit) FILTER (WHERE j.id IS NOT NULL), 0) AS credit
        FROM accounting_accounts a LEFT JOIN accounting_journal_lines l ON l.account_id = a.id
        LEFT JOIN accounting_journals j ON j.id = l.journal_id AND j.status = 'posted' AND j.fiscal_year = $1
        WHERE a.is_active = TRUE GROUP BY a.id ORDER BY a.code`,
@@ -240,6 +271,7 @@ class AccountingService {
   }
 
   async closeFiscalYear(id, req) {
+    await this.ensureTables(req.tenantPool);
     const result = await req.tenantPool.query(
       "UPDATE accounting_fiscal_years SET status = 'closed' WHERE id = $1 RETURNING *",
       [id],
@@ -249,6 +281,8 @@ class AccountingService {
   }
 
   async voidJournal(id, reason, req) {
+    await this.ensureTables(req.tenantPool);
+    if (!reason?.trim()) throw accountingError("A void reason is required");
     const result = await req.tenantPool.query(
       "UPDATE accounting_journals SET status = 'void', void_reason = $1 WHERE id = $2 AND status = 'posted' RETURNING *",
       [reason || null, id],
@@ -258,6 +292,8 @@ class AccountingService {
   }
 
   async reverseJournal(id, reason, req) {
+    await this.ensureTables(req.tenantPool);
+    if (!reason?.trim()) throw accountingError("A reversal reason is required");
     return this.withTransaction(req.tenantPool, async (client) => {
       const original = await client.query("SELECT * FROM accounting_journals WHERE id = $1 AND status = 'posted'", [id]);
       if (!original.rows.length) throw accountingError("Posted journal not found", 404);
