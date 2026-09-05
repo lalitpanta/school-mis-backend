@@ -617,11 +617,13 @@ class FeeService {
           category: "Student Fees",
           txn_type: "income",
           amount: centsToMoney(amountCents),
-          payment_mode: payload.payment_method === "cash"
-            ? "cash"
-            : payload.payment_method === "bank" || payload.payment_method === "cheque"
-              ? payload.payment_method
-              : "online",
+          payment_mode:
+            payload.payment_method === "cash"
+              ? "cash"
+              : payload.payment_method === "bank" ||
+                  payload.payment_method === "cheque"
+                ? payload.payment_method
+                : "online",
           fiscal_year: undefined,
         },
         transactionRes.rows[0].id,

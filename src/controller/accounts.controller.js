@@ -1,5 +1,5 @@
-const accountsService = require('../services/accounts.service');
-const accountingService = require('../services/accounting.service');
+const accountsService = require("../services/accounts.service");
+const accountingService = require("../services/accounting.service");
 
 class AccountsController {
   listAccounts = async (req, res, next) => {
@@ -22,8 +22,12 @@ class AccountsController {
 
   postJournal = async (req, res, next) => {
     try {
-      const data = await accountingService.withTransaction(req.tenantPool, (client) =>
-        accountingService.postJournal(client, req.body, { createdBy: req.user?.id }),
+      const data = await accountingService.withTransaction(
+        req.tenantPool,
+        (client) =>
+          accountingService.postJournal(client, req.body, {
+            createdBy: req.user?.id,
+          }),
       );
       res.status(201).json({ success: true, data });
     } catch (err) {
@@ -42,7 +46,11 @@ class AccountsController {
 
   getFinancialReport = async (req, res, next) => {
     try {
-      const data = await accountingService.getFinancialReport(req.params.report, req.query, req);
+      const data = await accountingService.getFinancialReport(
+        req.params.report,
+        req.query,
+        req,
+      );
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -87,7 +95,11 @@ class AccountsController {
 
   voidJournal = async (req, res, next) => {
     try {
-      const data = await accountingService.voidJournal(req.params.id, req.body.reason, req);
+      const data = await accountingService.voidJournal(
+        req.params.id,
+        req.body.reason,
+        req,
+      );
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -96,7 +108,11 @@ class AccountsController {
 
   reverseJournal = async (req, res, next) => {
     try {
-      const data = await accountingService.reverseJournal(req.params.id, req.body.reason, req);
+      const data = await accountingService.reverseJournal(
+        req.params.id,
+        req.body.reason,
+        req,
+      );
       res.status(201).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -137,7 +153,9 @@ class AccountsController {
   updateTransaction = async (req, res, next) => {
     try {
       const data = await accountsService.updateTransaction(
-        req.params.id, req.body, req
+        req.params.id,
+        req.body,
+        req,
       );
       res.status(200).json({ success: true, data });
     } catch (err) {
@@ -210,7 +228,9 @@ class AccountsController {
     try {
       const { status } = req.body;
       const data = await accountsService.updatePayrollStatus(
-        req.params.id, status, req
+        req.params.id,
+        status,
+        req,
       );
       res.status(200).json({ success: true, data });
     } catch (err) {
@@ -222,11 +242,11 @@ class AccountsController {
   exportCsv = async (req, res, next) => {
     try {
       const csv = await accountsService.exportTransactionsCsv(req.query, req);
-      const fy  = req.query.fiscal_year || 'all';
-      res.setHeader('Content-Type', 'text/csv');
+      const fy = req.query.fiscal_year || "all";
+      res.setHeader("Content-Type", "text/csv");
       res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="accounts_${fy.replace('/', '-')}.csv"`
+        "Content-Disposition",
+        `attachment; filename="accounts_${fy.replace("/", "-")}.csv"`,
       );
       res.status(200).send(csv);
     } catch (err) {
