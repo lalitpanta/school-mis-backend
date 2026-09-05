@@ -300,6 +300,13 @@ class AccountsService {
 
   async updateTransaction(id, payload, req) {
     const db = req.tenantPool;
+    const posted = await db.query(
+      `SELECT 1 FROM accounting_journals WHERE source_type = 'accounts_transaction' AND source_id = $1 AND status IN ('posted', 'reversed') LIMIT 1`,
+      [String(id)],
+    ).catch(() => ({ rows: [] }));
+    if (posted.rows.length) {
+      throw Object.assign(new Error('Posted accounting transactions cannot be edited; create a reversal instead'), { status: 409 });
+    }
     const fields = [];
     const vals   = [];
     const allowed = [
@@ -328,6 +335,13 @@ class AccountsService {
 
   async deleteTransaction(id, req) {
     const db = req.tenantPool;
+    const posted = await db.query(
+      `SELECT 1 FROM accounting_journals WHERE source_type = 'accounts_transaction' AND source_id = $1 LIMIT 1`,
+      [String(id)],
+    ).catch(() => ({ rows: [] }));
+    if (posted.rows.length) {
+      throw Object.assign(new Error('Posted accounting transactions cannot be deleted; create a reversal instead'), { status: 409 });
+    }
     const result = await db.query(
       'DELETE FROM accounts_transactions WHERE id = $1 RETURNING id', [id]
     );

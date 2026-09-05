@@ -24,6 +24,12 @@ const ACCOUNTING_TABLES_SQL = `
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS accounting_account_mappings (
+    mapping_key VARCHAR(60) PRIMARY KEY,
+    account_id BIGINT NOT NULL REFERENCES accounting_accounts(id) ON DELETE RESTRICT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
   CREATE TABLE IF NOT EXISTS accounting_journals (
     id BIGSERIAL PRIMARY KEY,
     journal_number VARCHAR(40) NOT NULL UNIQUE,
@@ -62,6 +68,16 @@ const ACCOUNTING_TABLES_SQL = `
     prefix VARCHAR(12) NOT NULL,
     next_number INTEGER NOT NULL DEFAULT 1 CHECK (next_number > 0),
     PRIMARY KEY (fiscal_year_id, voucher_type)
+  );
+  CREATE TABLE IF NOT EXISTS accounting_audit_events (
+    id BIGSERIAL PRIMARY KEY,
+    action VARCHAR(40) NOT NULL,
+    entity_type VARCHAR(40) NOT NULL,
+    entity_id VARCHAR(120) NOT NULL,
+    actor_id UUID,
+    reason TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
   CREATE INDEX IF NOT EXISTS idx_accounting_journals_date ON accounting_journals(journal_date);
   CREATE INDEX IF NOT EXISTS idx_accounting_journals_fy ON accounting_journals(fiscal_year_id);
@@ -116,6 +132,14 @@ function accountingError(message, status = 400) {
 }
 
 class AccountingService {
+  async recordAudit(db, action, entityType, entityId, options = {}) {
+    await db.query(
+      `INSERT INTO accounting_audit_events (action, entity_type, entity_id, actor_id, reason, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [action, entityType, String(entityId), options.actorId || null, options.reason || null, JSON.stringify(options.metadata || {})],
+    );
+  }
+
   async ensureTables(db) {
     await db.query(ACCOUNTING_TABLES_SQL);
     for (const [code, name, type, isControl] of DEFAULT_ACCOUNTS) {
@@ -125,6 +149,33 @@ class AccountingService {
         [code, name, type, isControl],
       );
     }
+    await db.query(`
+      UPDATE accounting_accounts child SET parent_id = parent.id
+      FROM accounting_accounts parent
+      WHERE parent.code = '1000' AND child.code IN ('1010', '1020', '1030');
+      UPDATE accounting_accounts child SET parent_id = parent.id
+      FROM accounting_accounts parent
+      WHERE parent.code = '2000' AND child.code IN ('2010', '2020');
+      UPDATE accounting_accounts child SET parent_id = parent.id
+      FROM accounting_accounts parent
+      WHERE parent.code = '4000' AND child.code = '4010';
+      UPDATE accounting_accounts child SET parent_id = parent.id
+      FROM accounting_accounts parent
+      WHERE parent.code = '5000' AND child.code = '5010';
+    `);
+    await db.query(`
+      INSERT INTO accounting_account_mappings (mapping_key, account_id)
+      SELECT mapping_key, account_id FROM (VALUES
+        ('cash', (SELECT id FROM accounting_accounts WHERE code = '1010')),
+        ('bank', (SELECT id FROM accounting_accounts WHERE code = '1020')),
+        ('accounts_receivable', (SELECT id FROM accounting_accounts WHERE code = '1030')),
+        ('fee_income', (SELECT id FROM accounting_accounts WHERE code = '4000')),
+        ('other_income', (SELECT id FROM accounting_accounts WHERE code = '4010')),
+        ('general_expense', (SELECT id FROM accounting_accounts WHERE code = '5000')),
+        ('salary_expense', (SELECT id FROM accounting_accounts WHERE code = '5010'))
+      ) AS defaults(mapping_key, account_id)
+      ON CONFLICT (mapping_key) DO NOTHING
+    `);
     const fy = currentFiscalYear();
     await db.query(
       `INSERT INTO accounting_fiscal_years (code, start_date, end_date)
@@ -249,15 +300,29 @@ class AccountingService {
         [journal.rows[0].id, accounts[line.account_code], line.debit || '0', line.credit || '0', line.party_type || null, line.party_id || null, line.cost_center || null, line.narration || null],
       );
     }
+    await this.recordAudit(db, 'posted', 'journal', journal.rows[0].id, {
+      actorId: options.createdBy || payload.created_by,
+      metadata: { journal_number: journalNumber, voucher_type: voucherType },
+    });
     return journal.rows[0];
   }
 
   async postLegacyTransaction(client, payload, sourceId, req) {
     const isIncome = payload.txn_type === 'income';
-    const paymentCode = ['bank', 'cheque', 'online'].includes(payload.payment_mode) ? '1020' : '1010';
-    const counterpartCode = isIncome
-      ? (payload.category === 'Student Fees' ? '4000' : '4010')
-      : (payload.category === 'Staff Salaries' ? '5010' : '5000');
+    const mappingKeys = [
+      ['bank', 'cheque', 'online'].includes(payload.payment_mode) ? 'bank' : 'cash',
+      isIncome ? (payload.category === 'Student Fees' ? 'fee_income' : 'other_income') : (payload.category === 'Staff Salaries' ? 'salary_expense' : 'general_expense'),
+    ];
+    const mappingResult = await client.query(
+      `SELECT mapping_key, a.code FROM accounting_account_mappings m
+       JOIN accounting_accounts a ON a.id = m.account_id
+       WHERE mapping_key = ANY($1::varchar[])`,
+      [mappingKeys],
+    );
+    const mappings = Object.fromEntries(mappingResult.rows.map((row) => [row.mapping_key, row.code]));
+    for (const key of mappingKeys) if (!mappings[key]) throw accountingError(`Accounting mapping ${key} is not configured`, 409);
+    const paymentCode = mappings[mappingKeys[0]];
+    const counterpartCode = mappings[mappingKeys[1]];
     return this.postJournal(client, {
       journal_date: payload.txn_date,
       fiscal_year: payload.fiscal_year,
@@ -288,6 +353,10 @@ class AccountingService {
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [payload.code, payload.name, payload.account_type, payload.parent_id || null, Boolean(payload.is_control)],
     );
+    await this.recordAudit(req.tenantPool, 'created', 'account', result.rows[0].id, {
+      actorId: req.user?.id,
+      metadata: { code: result.rows[0].code, name: result.rows[0].name },
+    });
     return result.rows[0];
   }
 
@@ -307,6 +376,42 @@ class AccountingService {
        LEFT JOIN accounting_fiscal_years fy ON fy.id = j.fiscal_year_id
        WHERE ${conditions.join(' AND ')}
        GROUP BY a.id ORDER BY a.code`, params,
+    );
+    return result.rows;
+  }
+
+  async getFinancialReport(report, filters, req) {
+    await this.ensureTables(req.tenantPool);
+    if (report === 'day-book' || report === 'voucher-register') {
+      return this.listJournals(filters, req);
+    }
+    const params = [];
+    const conditions = [`j.status = 'posted'`];
+    if (filters.fiscal_year) { params.push(filters.fiscal_year); conditions.push(`fy.code = $${params.length}`); }
+    if (filters.from) { params.push(filters.from); conditions.push(`j.journal_date >= $${params.length}`); }
+    if (filters.to) { params.push(filters.to); conditions.push(`j.journal_date <= $${params.length}`); }
+    const accountTypes = report === 'balance-sheet'
+      ? ['asset', 'liability', 'equity']
+      : report === 'cash-position'
+        ? ['asset']
+        : ['income', 'expense'];
+    params.push(accountTypes);
+    const result = await req.tenantPool.query(
+      `SELECT a.id, a.code, a.name, a.account_type,
+              COALESCE(SUM(l.debit), 0) AS debit,
+              COALESCE(SUM(l.credit), 0) AS credit,
+              CASE WHEN a.account_type IN ('income', 'liability', 'equity')
+                THEN COALESCE(SUM(l.credit - l.debit), 0)
+                ELSE COALESCE(SUM(l.debit - l.credit), 0)
+              END AS balance
+       FROM accounting_accounts a
+       LEFT JOIN accounting_journal_lines l ON l.account_id = a.id
+       LEFT JOIN accounting_journals j ON j.id = l.journal_id
+       LEFT JOIN accounting_fiscal_years fy ON fy.id = j.fiscal_year_id
+       WHERE a.account_type = ANY($${params.length}::varchar[])
+         AND (${conditions.join(' AND ')})
+       GROUP BY a.id ORDER BY a.code`,
+      params,
     );
     return result.rows;
   }
@@ -376,6 +481,11 @@ class AccountingService {
       [req.user?.id || null, reason, id],
     );
     if (!result.rows.length) throw accountingError('Posted journal not found', 404);
+    await this.recordAudit(req.tenantPool, 'voided', 'journal', id, {
+      actorId: req.user?.id,
+      reason,
+      metadata: { journal_number: result.rows[0].journal_number },
+    });
     return result.rows[0];
   }
 
@@ -410,6 +520,11 @@ class AccountingService {
       await client.query(
         `UPDATE accounting_journals SET status = 'reversed' WHERE id = $1`, [id],
       );
+      await this.recordAudit(client, 'reversed', 'journal', id, {
+        actorId: req.user?.id,
+        reason,
+        metadata: { reversal_id: reversal.id },
+      });
       return reversal;
     });
   }

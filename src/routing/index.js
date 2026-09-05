@@ -239,12 +239,13 @@ masterRouter.use(
   require("./v1/dashboard.routing"),
 );
 
-// Accounts - no module guard (same pattern as /fees, /departments)
+// Accounts - dedicated accounting module
 masterRouter.use(
   "/accounts",
   authenticateToken,
-  requireTenant,
   attachTenantContext,
+  requireTenantUser,
+  requireModule("accounts"),
   require("./v1/accounts.routing"),
 );
 

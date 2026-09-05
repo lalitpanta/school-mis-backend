@@ -40,6 +40,15 @@ class AccountsController {
     }
   };
 
+  getFinancialReport = async (req, res, next) => {
+    try {
+      const data = await accountingService.getFinancialReport(req.params.report, req.query, req);
+      res.status(200).json({ success: true, data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   listFiscalYears = async (req, res, next) => {
     try {
       const data = await accountingService.listFiscalYears(req);

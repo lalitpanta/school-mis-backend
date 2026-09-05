@@ -8,6 +8,7 @@ router.get('/accounting/accounts',      requirePermission('accounts.view'), ctrl
 router.post('/accounting/accounts',     requirePermission('accounts.manage'), ctrl.createAccount);
 router.post('/accounting/journals',     requirePermission('accounts.post'), ctrl.postJournal);
 router.get('/accounting/trial-balance', requirePermission('accounts.view'), ctrl.getTrialBalance);
+router.get('/accounting/reports/:report', requirePermission('accounts.view'), ctrl.getFinancialReport);
 router.get('/accounting/fiscal-years', requirePermission('accounts.view'), ctrl.listFiscalYears);
 router.post('/accounting/fiscal-years', requirePermission('accounts.manage'), ctrl.createFiscalYear);
 router.patch('/accounting/fiscal-years/:id/close', requirePermission('accounts.close_period'), ctrl.closeFiscalYear);
