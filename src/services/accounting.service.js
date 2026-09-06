@@ -1,6 +1,7 @@
 const DEFAULT_ACCOUNTS = [
   ["1000", "Cash", "asset"],
   ["1010", "Bank", "asset"],
+  ["1020", "Gateway Clearing", "asset"],
   ["1100", "Accounts Receivable", "asset"],
   ["4000", "Fee Income", "income"],
   ["5000", "Operating Expenses", "expense"],
@@ -86,11 +87,62 @@ class AccountingService {
         CHECK (debit >= 0 AND credit >= 0 AND NOT (debit > 0 AND credit > 0))
       );
       CREATE SEQUENCE IF NOT EXISTS accounting_voucher_number_seq;
+      CREATE TABLE IF NOT EXISTS accounting_payment_gateways (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        provider VARCHAR(50) NOT NULL,
+        merchant_id VARCHAR(150),
+        api_key VARCHAR(255),
+        api_secret VARCHAR(255),
+        webhook_url TEXT,
+        mode VARCHAR(20) NOT NULL DEFAULT 'sandbox' CHECK (mode IN ('sandbox','live')),
+        is_active BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS accounting_gateway_transactions (
+        id SERIAL PRIMARY KEY,
+        gateway_id INTEGER NOT NULL REFERENCES accounting_payment_gateways(id),
+        external_id VARCHAR(180) NOT NULL,
+        idempotency_key VARCHAR(180) NOT NULL,
+        amount NUMERIC(14,2) NOT NULL,
+        payment_mode VARCHAR(40),
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','success','failed','refunded','reconciled')),
+        journal_id INTEGER REFERENCES accounting_journals(id),
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (gateway_id, external_id),
+        UNIQUE (idempotency_key)
+      );
+      CREATE TABLE IF NOT EXISTS accounting_bank_accounts (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(150) NOT NULL,
+        account_number_masked VARCHAR(50),
+        ledger_account_id INTEGER REFERENCES accounting_accounts(id),
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS accounting_bank_statements (
+        id SERIAL PRIMARY KEY,
+        bank_account_id INTEGER NOT NULL REFERENCES accounting_bank_accounts(id),
+        transaction_date DATE NOT NULL,
+        reference VARCHAR(180),
+        description TEXT,
+        amount NUMERIC(14,2) NOT NULL,
+        direction VARCHAR(10) NOT NULL CHECK (direction IN ('debit','credit')),
+        status VARCHAR(20) NOT NULL DEFAULT 'unmatched' CHECK (status IN ('unmatched','matched','reconciled')),
+        journal_id INTEGER REFERENCES accounting_journals(id),
+        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (bank_account_id, transaction_date, reference, amount, direction)
+      );
       CREATE INDEX IF NOT EXISTS idx_accounting_journals_date ON accounting_journals(journal_date);
       CREATE INDEX IF NOT EXISTS idx_accounting_journals_fiscal_year ON accounting_journals(fiscal_year);
       CREATE INDEX IF NOT EXISTS idx_accounting_journal_lines_account ON accounting_journal_lines(account_id);
       CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_date ON accounting_vouchers(voucher_date);
       CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_status ON accounting_vouchers(status);
+      CREATE INDEX IF NOT EXISTS idx_accounting_gateway_transactions_status ON accounting_gateway_transactions(status);
+      CREATE INDEX IF NOT EXISTS idx_accounting_bank_statements_status ON accounting_bank_statements(status);
       CREATE UNIQUE INDEX IF NOT EXISTS uq_accounting_journal_source
         ON accounting_journals(source_type, source_id)
         WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
@@ -293,6 +345,124 @@ class AccountingService {
         [journal.id, req.user?.id || null, id],
       );
       return { ...updated.rows[0], journal };
+    });
+  }
+
+  async listGateways(req) {
+    await this.ensureTables(req.tenantPool);
+    const result = await req.tenantPool.query(
+      `SELECT id, name, provider, merchant_id, webhook_url, mode, is_active, created_at, updated_at
+       FROM accounting_payment_gateways ORDER BY name`,
+    );
+    return result.rows;
+  }
+
+  async saveGateway(payload, req) {
+    await this.ensureTables(req.tenantPool);
+    if (!payload.name || !payload.provider) throw accountingError("Gateway name and provider are required");
+    const result = await req.tenantPool.query(
+      `INSERT INTO accounting_payment_gateways
+        (name, provider, merchant_id, api_key, api_secret, webhook_url, mode, is_active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (name) DO UPDATE SET provider = EXCLUDED.provider,
+        merchant_id = EXCLUDED.merchant_id, api_key = COALESCE(EXCLUDED.api_key, accounting_payment_gateways.api_key),
+        api_secret = COALESCE(EXCLUDED.api_secret, accounting_payment_gateways.api_secret),
+        webhook_url = EXCLUDED.webhook_url, mode = EXCLUDED.mode, is_active = EXCLUDED.is_active,
+        updated_at = CURRENT_TIMESTAMP
+       RETURNING id, name, provider, merchant_id, webhook_url, mode, is_active, created_at, updated_at`,
+      [payload.name.trim(), payload.provider.trim(), payload.merchant_id || null, payload.api_key || null, payload.api_secret || null, payload.webhook_url || null, payload.mode || "sandbox", payload.is_active === true],
+    );
+    return result.rows[0];
+  }
+
+  async listGatewayTransactions(filters, req) {
+    await this.ensureTables(req.tenantPool);
+    const values = [];
+    const where = [];
+    if (filters.status) { values.push(filters.status); where.push(`t.status = $${values.length}`); }
+    const result = await req.tenantPool.query(
+      `SELECT t.id, t.external_id, t.amount, t.payment_mode, t.status, t.created_at,
+        g.name AS gateway_name FROM accounting_gateway_transactions t
+       JOIN accounting_payment_gateways g ON g.id = t.gateway_id
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY t.created_at DESC LIMIT 100`,
+      values,
+    );
+    return result.rows;
+  }
+
+  async updateGatewayTransaction(payload, req) {
+    await this.ensureTables(req.tenantPool);
+    if (!payload.gateway_id || !payload.external_id || !payload.idempotency_key || Number(payload.amount) <= 0) {
+      throw accountingError("Gateway, external ID, idempotency key, and positive amount are required");
+    }
+    return this.withTransaction(req.tenantPool, async (client) => {
+      const existing = await client.query("SELECT * FROM accounting_gateway_transactions WHERE idempotency_key = $1 FOR UPDATE", [payload.idempotency_key]);
+      if (existing.rows[0]) return existing.rows[0];
+      const transaction = await client.query(
+        `INSERT INTO accounting_gateway_transactions (gateway_id, external_id, idempotency_key, amount, payment_mode, status, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [payload.gateway_id, payload.external_id, payload.idempotency_key, payload.amount, payload.payment_mode || null, payload.status || "pending", payload.payload || {}],
+      );
+      if (transaction.rows[0].status === "success") {
+        const accounts = await client.query(
+          "SELECT id, code FROM accounting_accounts WHERE code = ANY($1)",
+          [["1020", "4000"]],
+        );
+        const ids = Object.fromEntries(accounts.rows.map((row) => [row.code, row.id]));
+        if (!ids["1020"] || !ids["4000"]) throw accountingError("Gateway clearing accounts are not configured", 500);
+        const journal = await this.postJournal(client, {
+          description: `Gateway payment ${payload.external_id}`,
+          source_type: "payment_gateway",
+          source_id: String(transaction.rows[0].id),
+          lines: [
+            { account_id: ids["1020"], debit: payload.amount, credit: 0 },
+            { account_id: ids["4000"], debit: 0, credit: payload.amount },
+          ],
+        }, { createdBy: req.user?.id });
+        await client.query("UPDATE accounting_gateway_transactions SET journal_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", [journal.id, transaction.rows[0].id]);
+        transaction.rows[0].journal_id = journal.id;
+      }
+      return transaction.rows[0];
+    });
+  }
+
+  async listBankStatements(filters, req) {
+    await this.ensureTables(req.tenantPool);
+    const result = await req.tenantPool.query(
+      `SELECT s.*, b.name AS bank_account_name FROM accounting_bank_statements s
+       JOIN accounting_bank_accounts b ON b.id = s.bank_account_id
+       WHERE ($1::text IS NULL OR s.status = $1) ORDER BY s.transaction_date DESC LIMIT 200`,
+      [filters.status || null],
+    );
+    return result.rows;
+  }
+
+  async createBankAccount(payload, req) {
+    await this.ensureTables(req.tenantPool);
+    if (!payload.name) throw accountingError("Bank account name is required");
+    const result = await req.tenantPool.query(
+      `INSERT INTO accounting_bank_accounts (name, account_number_masked, ledger_account_id) VALUES ($1,$2,$3) RETURNING *`,
+      [payload.name.trim(), payload.account_number_masked || null, payload.ledger_account_id || null],
+    );
+    return result.rows[0];
+  }
+
+  async importBankStatement(payload, req) {
+    await this.ensureTables(req.tenantPool);
+    if (!payload.bank_account_id || !Array.isArray(payload.entries)) throw accountingError("Bank account and statement entries are required");
+    return this.withTransaction(req.tenantPool, async (client) => {
+      let imported = 0;
+      for (const entry of payload.entries) {
+        if (!entry.transaction_date || !entry.reference || Number(entry.amount) <= 0 || !["debit", "credit"].includes(entry.direction)) continue;
+        const result = await client.query(
+          `INSERT INTO accounting_bank_statements (bank_account_id, transaction_date, reference, description, amount, direction)
+           VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
+          [payload.bank_account_id, entry.transaction_date, entry.reference, entry.description || null, entry.amount, entry.direction],
+        );
+        imported += result.rowCount;
+      }
+      return { imported };
     });
   }
 

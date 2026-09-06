@@ -76,18 +76,53 @@ exports.up = function (db) {
       credit NUMERIC(14,2) NOT NULL DEFAULT 0,
       CHECK (debit >= 0 AND credit >= 0 AND NOT (debit > 0 AND credit > 0))
     );
+    CREATE TABLE IF NOT EXISTS accounting_payment_gateways (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      provider VARCHAR(50) NOT NULL,
+      merchant_id VARCHAR(150), api_key VARCHAR(255), api_secret VARCHAR(255), webhook_url TEXT,
+      mode VARCHAR(20) NOT NULL DEFAULT 'sandbox' CHECK (mode IN ('sandbox','live')),
+      is_active BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS accounting_gateway_transactions (
+      id SERIAL PRIMARY KEY,
+      gateway_id INTEGER NOT NULL REFERENCES accounting_payment_gateways(id),
+      external_id VARCHAR(180) NOT NULL, idempotency_key VARCHAR(180) NOT NULL,
+      amount NUMERIC(14,2) NOT NULL, payment_mode VARCHAR(40),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','success','failed','refunded','reconciled')),
+      journal_id INTEGER REFERENCES accounting_journals(id), payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (gateway_id, external_id), UNIQUE (idempotency_key)
+    );
+    CREATE TABLE IF NOT EXISTS accounting_bank_accounts (
+      id SERIAL PRIMARY KEY, name VARCHAR(150) NOT NULL, account_number_masked VARCHAR(50),
+      ledger_account_id INTEGER REFERENCES accounting_accounts(id), is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS accounting_bank_statements (
+      id SERIAL PRIMARY KEY, bank_account_id INTEGER NOT NULL REFERENCES accounting_bank_accounts(id),
+      transaction_date DATE NOT NULL, reference VARCHAR(180), description TEXT, amount NUMERIC(14,2) NOT NULL,
+      direction VARCHAR(10) NOT NULL CHECK (direction IN ('debit','credit')),
+      status VARCHAR(20) NOT NULL DEFAULT 'unmatched' CHECK (status IN ('unmatched','matched','reconciled')),
+      journal_id INTEGER REFERENCES accounting_journals(id), imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (bank_account_id, transaction_date, reference, amount, direction)
+    );
     CREATE SEQUENCE IF NOT EXISTS accounting_voucher_number_seq;
     CREATE INDEX IF NOT EXISTS idx_accounting_journals_date ON accounting_journals(journal_date);
     CREATE INDEX IF NOT EXISTS idx_accounting_journals_fiscal_year ON accounting_journals(fiscal_year);
     CREATE INDEX IF NOT EXISTS idx_accounting_journal_lines_account ON accounting_journal_lines(account_id);
     CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_date ON accounting_vouchers(voucher_date);
     CREATE INDEX IF NOT EXISTS idx_accounting_vouchers_status ON accounting_vouchers(status);
+    CREATE INDEX IF NOT EXISTS idx_accounting_gateway_transactions_status ON accounting_gateway_transactions(status);
+    CREATE INDEX IF NOT EXISTS idx_accounting_bank_statements_status ON accounting_bank_statements(status);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_accounting_journal_source
       ON accounting_journals(source_type, source_id)
       WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
     INSERT INTO accounting_accounts (code, name, account_type) VALUES
       ('1000', 'Cash', 'asset'),
       ('1010', 'Bank', 'asset'),
+      ('1020', 'Gateway Clearing', 'asset'),
       ('1100', 'Accounts Receivable', 'asset'),
       ('4000', 'Fee Income', 'income'),
       ('5000', 'Operating Expenses', 'expense'),
@@ -101,6 +136,10 @@ exports.down = function (db) {
     DROP TABLE IF EXISTS accounting_journal_lines;
     DROP TABLE IF EXISTS accounting_voucher_lines;
     DROP TABLE IF EXISTS accounting_vouchers;
+    DROP TABLE IF EXISTS accounting_bank_statements;
+    DROP TABLE IF EXISTS accounting_bank_accounts;
+    DROP TABLE IF EXISTS accounting_gateway_transactions;
+    DROP TABLE IF EXISTS accounting_payment_gateways;
     DROP SEQUENCE IF EXISTS accounting_voucher_number_seq;
     DROP TABLE IF EXISTS accounting_journals;
     DROP TABLE IF EXISTS accounting_fiscal_years;
