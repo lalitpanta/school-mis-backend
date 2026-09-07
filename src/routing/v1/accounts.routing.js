@@ -49,12 +49,36 @@ router.patch(
   requirePermission("accounts.close_period"),
   ctrl.closeFiscalYear,
 );
-router.patch("/accounting/fiscal-years/:id/active", requirePermission("accounts.manage"), ctrl.setActiveFiscalYear);
-router.patch("/accounting/fiscal-years/:id/lock", requirePermission("accounts.close_period"), ctrl.lockFiscalYear);
-router.get("/accounting/configuration", requirePermission("accounts.view"), ctrl.getAccountingConfiguration);
-router.patch("/accounting/configuration", requirePermission("accounts.manage"), ctrl.updateAccountingConfiguration);
-router.post("/accounting/tax-rules", requirePermission("accounts.manage"), ctrl.createTaxRule);
-router.post("/accounting/cost-centers", requirePermission("accounts.manage"), ctrl.createCostCenter);
+router.patch(
+  "/accounting/fiscal-years/:id/active",
+  requirePermission("accounts.manage"),
+  ctrl.setActiveFiscalYear,
+);
+router.patch(
+  "/accounting/fiscal-years/:id/lock",
+  requirePermission("accounts.close_period"),
+  ctrl.lockFiscalYear,
+);
+router.get(
+  "/accounting/configuration",
+  requirePermission("accounts.view"),
+  ctrl.getAccountingConfiguration,
+);
+router.patch(
+  "/accounting/configuration",
+  requirePermission("accounts.manage"),
+  ctrl.updateAccountingConfiguration,
+);
+router.post(
+  "/accounting/tax-rules",
+  requirePermission("accounts.manage"),
+  ctrl.createTaxRule,
+);
+router.post(
+  "/accounting/cost-centers",
+  requirePermission("accounts.manage"),
+  ctrl.createCostCenter,
+);
 router.get(
   "/accounting/journals",
   requirePermission("accounts.view"),
@@ -85,13 +109,41 @@ router.post(
   requirePermission("accounts.post"),
   ctrl.postVoucher,
 );
-router.get("/accounting/payment-gateways", requirePermission("accounts.view"), ctrl.listGateways);
-router.post("/accounting/payment-gateways", requirePermission("accounts.manage"), ctrl.saveGateway);
-router.get("/accounting/payment-gateway-transactions", requirePermission("accounts.view"), ctrl.listGatewayTransactions);
-router.post("/accounting/payment-gateway-transactions", requirePermission("accounts.manage"), ctrl.updateGatewayTransaction);
-router.get("/accounting/bank-statements", requirePermission("accounts.view"), ctrl.listBankStatements);
-router.post("/accounting/bank-accounts", requirePermission("accounts.manage"), ctrl.createBankAccount);
-router.post("/accounting/bank-statements/import", requirePermission("accounts.manage"), ctrl.importBankStatement);
+router.get(
+  "/accounting/payment-gateways",
+  requirePermission("accounts.view"),
+  ctrl.listGateways,
+);
+router.post(
+  "/accounting/payment-gateways",
+  requirePermission("accounts.manage"),
+  ctrl.saveGateway,
+);
+router.get(
+  "/accounting/payment-gateway-transactions",
+  requirePermission("accounts.view"),
+  ctrl.listGatewayTransactions,
+);
+router.post(
+  "/accounting/payment-gateway-transactions",
+  requirePermission("accounts.manage"),
+  ctrl.updateGatewayTransaction,
+);
+router.get(
+  "/accounting/bank-statements",
+  requirePermission("accounts.view"),
+  ctrl.listBankStatements,
+);
+router.post(
+  "/accounting/bank-accounts",
+  requirePermission("accounts.manage"),
+  ctrl.createBankAccount,
+);
+router.post(
+  "/accounting/bank-statements/import",
+  requirePermission("accounts.manage"),
+  ctrl.importBankStatement,
+);
 router.post(
   "/accounting/journals/:id/void",
   requirePermission("accounts.manage"),

@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 var dbm;
 var type;
@@ -18,6 +18,7 @@ exports.up = function (db) {
     ALTER TABLE IF EXISTS accounting_vouchers ADD COLUMN IF NOT EXISTS fiscal_year VARCHAR(20);
     ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP;
+    ALTER TABLE IF EXISTS accounting_configuration ADD COLUMN IF NOT EXISTS calendar_type VARCHAR(2) NOT NULL DEFAULT 'BS';
     DO $$ BEGIN
       IF to_regclass('accounts_transactions') IS NOT NULL THEN
         CREATE INDEX IF NOT EXISTS idx_accounts_transactions_fiscal_year ON accounts_transactions(fiscal_year);
@@ -35,6 +36,7 @@ exports.up = function (db) {
       phone VARCHAR(100), email VARCHAR(255), logo_url TEXT, letterhead_url TEXT,
       currency VARCHAR(10) NOT NULL DEFAULT 'NPR', decimal_places SMALLINT NOT NULL DEFAULT 2,
       fiscal_year_format VARCHAR(30) NOT NULL DEFAULT 'BS', active_fiscal_year VARCHAR(20),
+      calendar_type VARCHAR(2) NOT NULL DEFAULT 'BS',
       approval_required BOOLEAN NOT NULL DEFAULT FALSE, approval_threshold NUMERIC(14,2) NOT NULL DEFAULT 0,
       cash_account_id INTEGER, bank_account_id INTEGER, gateway_clearing_account_id INTEGER,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

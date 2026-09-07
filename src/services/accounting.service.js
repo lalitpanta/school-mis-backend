@@ -150,17 +150,21 @@ class AccountingService {
         WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
       ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP;
+      ALTER TABLE IF EXISTS accounting_journals ADD COLUMN IF NOT EXISTS fiscal_year VARCHAR(20);
+      ALTER TABLE IF EXISTS accounting_vouchers ADD COLUMN IF NOT EXISTS fiscal_year VARCHAR(20);
       CREATE TABLE IF NOT EXISTS accounting_configuration (
         id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1), legal_name VARCHAR(255), address TEXT,
         pan_number VARCHAR(100), vat_number VARCHAR(100), phone VARCHAR(100), email VARCHAR(255),
         logo_url TEXT, letterhead_url TEXT, currency VARCHAR(10) NOT NULL DEFAULT 'NPR',
         decimal_places SMALLINT NOT NULL DEFAULT 2, fiscal_year_format VARCHAR(30) NOT NULL DEFAULT 'BS',
+        calendar_type VARCHAR(2) NOT NULL DEFAULT 'BS',
         active_fiscal_year VARCHAR(20), approval_required BOOLEAN NOT NULL DEFAULT FALSE,
         approval_threshold NUMERIC(14,2) NOT NULL DEFAULT 0, cash_account_id INTEGER,
         bank_account_id INTEGER, gateway_clearing_account_id INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       INSERT INTO accounting_configuration (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+      ALTER TABLE IF EXISTS accounting_configuration ADD COLUMN IF NOT EXISTS calendar_type VARCHAR(2) NOT NULL DEFAULT 'BS';
       CREATE TABLE IF NOT EXISTS accounting_tax_rules (
         id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL UNIQUE, tax_type VARCHAR(40) NOT NULL,
         rate NUMERIC(12,4) NOT NULL DEFAULT 0, rate_kind VARCHAR(10) NOT NULL DEFAULT 'percentage',
@@ -220,7 +224,12 @@ class AccountingService {
     const result = await req.tenantPool.query(
       `INSERT INTO accounting_accounts (code, name, account_type, parent_id)
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [payload.code.trim(), payload.name.trim(), payload.account_type, payload.parent_id || null],
+      [
+        payload.code.trim(),
+        payload.name.trim(),
+        payload.account_type,
+        payload.parent_id || null,
+      ],
     );
     return result.rows[0];
   }
@@ -231,7 +240,9 @@ class AccountingService {
     const values = [];
     for (const key of ["name", "account_type", "parent_id", "is_active"]) {
       if (payload[key] !== undefined) {
-        values.push(key === "name" ? String(payload[key]).trim() : payload[key]);
+        values.push(
+          key === "name" ? String(payload[key]).trim() : payload[key],
+        );
         fields.push(`${key} = $${values.length}`);
       }
     }
@@ -248,27 +259,55 @@ class AccountingService {
 
   async postJournal(client, payload, meta = {}) {
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
-    if (lines.length < 2) throw accountingError("A journal needs at least two lines");
-    const totalDebit = lines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
-    const totalCredit = lines.reduce((sum, line) => sum + Number(line.credit || 0), 0);
-    if (!Number.isFinite(totalDebit) || Math.abs(totalDebit - totalCredit) > 0.005 || totalDebit <= 0) {
+    if (lines.length < 2)
+      throw accountingError("A journal needs at least two lines");
+    const totalDebit = lines.reduce(
+      (sum, line) => sum + Number(line.debit || 0),
+      0,
+    );
+    const totalCredit = lines.reduce(
+      (sum, line) => sum + Number(line.credit || 0),
+      0,
+    );
+    if (
+      !Number.isFinite(totalDebit) ||
+      Math.abs(totalDebit - totalCredit) > 0.005 ||
+      totalDebit <= 0
+    ) {
       throw accountingError("Journal debits and credits must balance");
     }
 
-    const configuredYear = await client.query("SELECT active_fiscal_year FROM accounting_configuration WHERE id = 1");
-    const fiscalYear = payload.fiscal_year || configuredYear.rows[0]?.active_fiscal_year || currentFiscalYear();
+    const configuredYear = await client.query(
+      "SELECT active_fiscal_year FROM accounting_configuration WHERE id = 1",
+    );
+    const fiscalYear =
+      payload.fiscal_year ||
+      configuredYear.rows[0]?.active_fiscal_year ||
+      currentFiscalYear();
     const invalidLine = lines.some((line) => {
       const debit = Number(line.debit || 0);
       const credit = Number(line.credit || 0);
-      return !line.account_id || debit < 0 || credit < 0 || (debit === 0 && credit === 0) || (debit > 0 && credit > 0);
+      return (
+        !line.account_id ||
+        debit < 0 ||
+        credit < 0 ||
+        (debit === 0 && credit === 0) ||
+        (debit > 0 && credit > 0)
+      );
     });
-    if (invalidLine) throw accountingError("Each journal line must have one positive debit or credit");
+    if (invalidLine)
+      throw accountingError(
+        "Each journal line must have one positive debit or credit",
+      );
 
     const fiscalYearStatus = await client.query(
       "SELECT status, locked_at FROM accounting_fiscal_years WHERE name = $1",
       [fiscalYear],
     );
-    if (fiscalYearStatus.rows[0]?.status === "closed" || fiscalYearStatus.rows[0]?.locked_at) {
+    if (
+      fiscalYearStatus.rows[0]?.status === "closed" ||
+      fiscalYearStatus.rows[0]?.locked_at
+    ) {
       throw accountingError("This fiscal year is closed", 409);
     }
     const accountIds = lines.map((line) => line.account_id);
@@ -297,7 +336,13 @@ class AccountingService {
       await client.query(
         `INSERT INTO accounting_journal_lines (journal_id, account_id, description, debit, credit)
          VALUES ($1, $2, $3, $4, $5)`,
-        [journal.rows[0].id, line.account_id, line.description || null, line.debit || 0, line.credit || 0],
+        [
+          journal.rows[0].id,
+          line.account_id,
+          line.description || null,
+          line.debit || 0,
+          line.credit || 0,
+        ],
       );
     }
     return this._journalWithLines(client, journal.rows[0].id);
@@ -306,26 +351,51 @@ class AccountingService {
   async createVoucher(payload, req) {
     await this.ensureTables(req.tenantPool);
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
-    if (!payload.voucher_type || !lines.length) throw accountingError("Voucher type and lines are required");
+    if (!payload.voucher_type || !lines.length)
+      throw accountingError("Voucher type and lines are required");
     const voucherType = String(payload.voucher_type).toLowerCase();
-    if (!["receipt", "payment", "contra", "sales", "purchase", "journal"].includes(voucherType)) {
+    if (
+      ![
+        "receipt",
+        "payment",
+        "contra",
+        "sales",
+        "purchase",
+        "journal",
+      ].includes(voucherType)
+    ) {
       throw accountingError("Unsupported voucher type");
     }
     const year = new Date().getFullYear();
     const prefix = voucherType.slice(0, 2).toUpperCase();
     return this.withTransaction(req.tenantPool, async (client) => {
-      const sequence = await client.query("SELECT nextval('accounting_voucher_number_seq') AS next_number");
+      const sequence = await client.query(
+        "SELECT nextval('accounting_voucher_number_seq') AS next_number",
+      );
       const number = `${prefix}-${year}-${String(sequence.rows[0].next_number).padStart(4, "0")}`;
       const voucher = await client.query(
         `INSERT INTO accounting_vouchers (voucher_number, voucher_type, voucher_date, narration, fiscal_year, created_by)
          VALUES ($1, $2, COALESCE($3, CURRENT_DATE), $4, $5, $6) RETURNING *`,
-        [number, voucherType, payload.voucher_date || null, payload.narration || null, payload.fiscal_year || currentFiscalYear(), req.user?.id || null],
+        [
+          number,
+          voucherType,
+          payload.voucher_date || null,
+          payload.narration || null,
+          payload.fiscal_year || currentFiscalYear(),
+          req.user?.id || null,
+        ],
       );
       for (const line of lines) {
         await client.query(
           `INSERT INTO accounting_voucher_lines (voucher_id, account_id, description, debit, credit)
            VALUES ($1, $2, $3, $4, $5)`,
-          [voucher.rows[0].id, line.account_id, line.description || null, line.debit || 0, line.credit || 0],
+          [
+            voucher.rows[0].id,
+            line.account_id,
+            line.description || null,
+            line.debit || 0,
+            line.credit || 0,
+          ],
         );
       }
       return this.getVoucher(voucher.rows[0].id, { tenantPool: client });
@@ -348,8 +418,14 @@ class AccountingService {
     await this.ensureTables(req.tenantPool);
     const values = [];
     const where = [];
-    if (filters.status) { values.push(filters.status); where.push(`v.status = $${values.length}`); }
-    if (filters.voucher_type) { values.push(filters.voucher_type); where.push(`v.voucher_type = $${values.length}`); }
+    if (filters.status) {
+      values.push(filters.status);
+      where.push(`v.status = $${values.length}`);
+    }
+    if (filters.voucher_type) {
+      values.push(filters.voucher_type);
+      where.push(`v.voucher_type = $${values.length}`);
+    }
     const result = await req.tenantPool.query(
       `SELECT v.*, COALESCE(SUM(l.debit), 0) AS total_debit
        FROM accounting_vouchers v LEFT JOIN accounting_voucher_lines l ON l.voucher_id = v.id
@@ -364,15 +440,20 @@ class AccountingService {
     await this.ensureTables(req.tenantPool);
     return this.withTransaction(req.tenantPool, async (client) => {
       const voucher = await this.getVoucher(id, { tenantPool: client });
-      if (voucher.status !== "draft") throw accountingError("Only draft vouchers can be posted", 409);
-      const journal = await this.postJournal(client, {
-        journal_date: voucher.voucher_date,
-        description: voucher.narration || voucher.voucher_number,
-        fiscal_year: voucher.fiscal_year,
-        source_type: "accounting_voucher",
-        source_id: String(voucher.id),
-        lines: voucher.lines,
-      }, { createdBy: req.user?.id });
+      if (voucher.status !== "draft")
+        throw accountingError("Only draft vouchers can be posted", 409);
+      const journal = await this.postJournal(
+        client,
+        {
+          journal_date: voucher.voucher_date,
+          description: voucher.narration || voucher.voucher_number,
+          fiscal_year: voucher.fiscal_year,
+          source_type: "accounting_voucher",
+          source_id: String(voucher.id),
+          lines: voucher.lines,
+        },
+        { createdBy: req.user?.id },
+      );
       const updated = await client.query(
         `UPDATE accounting_vouchers SET status = 'posted', journal_id = $1, posted_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *`,
         [journal.id, req.user?.id || null, id],
@@ -392,7 +473,8 @@ class AccountingService {
 
   async saveGateway(payload, req) {
     await this.ensureTables(req.tenantPool);
-    if (!payload.name || !payload.provider) throw accountingError("Gateway name and provider are required");
+    if (!payload.name || !payload.provider)
+      throw accountingError("Gateway name and provider are required");
     const result = await req.tenantPool.query(
       `INSERT INTO accounting_payment_gateways
         (name, provider, merchant_id, api_key, api_secret, webhook_url, mode, is_active)
@@ -403,7 +485,16 @@ class AccountingService {
         webhook_url = EXCLUDED.webhook_url, mode = EXCLUDED.mode, is_active = EXCLUDED.is_active,
         updated_at = CURRENT_TIMESTAMP
        RETURNING id, name, provider, merchant_id, webhook_url, mode, is_active, created_at, updated_at`,
-      [payload.name.trim(), payload.provider.trim(), payload.merchant_id || null, payload.api_key || null, payload.api_secret || null, payload.webhook_url || null, payload.mode || "sandbox", payload.is_active === true],
+      [
+        payload.name.trim(),
+        payload.provider.trim(),
+        payload.merchant_id || null,
+        payload.api_key || null,
+        payload.api_secret || null,
+        payload.webhook_url || null,
+        payload.mode || "sandbox",
+        payload.is_active === true,
+      ],
     );
     return result.rows[0];
   }
@@ -412,7 +503,10 @@ class AccountingService {
     await this.ensureTables(req.tenantPool);
     const values = [];
     const where = [];
-    if (filters.status) { values.push(filters.status); where.push(`t.status = $${values.length}`); }
+    if (filters.status) {
+      values.push(filters.status);
+      where.push(`t.status = $${values.length}`);
+    }
     const result = await req.tenantPool.query(
       `SELECT t.id, t.external_id, t.amount, t.payment_mode, t.status, t.created_at,
         g.name AS gateway_name FROM accounting_gateway_transactions t
@@ -426,34 +520,65 @@ class AccountingService {
 
   async updateGatewayTransaction(payload, req) {
     await this.ensureTables(req.tenantPool);
-    if (!payload.gateway_id || !payload.external_id || !payload.idempotency_key || Number(payload.amount) <= 0) {
-      throw accountingError("Gateway, external ID, idempotency key, and positive amount are required");
+    if (
+      !payload.gateway_id ||
+      !payload.external_id ||
+      !payload.idempotency_key ||
+      Number(payload.amount) <= 0
+    ) {
+      throw accountingError(
+        "Gateway, external ID, idempotency key, and positive amount are required",
+      );
     }
     return this.withTransaction(req.tenantPool, async (client) => {
-      const existing = await client.query("SELECT * FROM accounting_gateway_transactions WHERE idempotency_key = $1 FOR UPDATE", [payload.idempotency_key]);
+      const existing = await client.query(
+        "SELECT * FROM accounting_gateway_transactions WHERE idempotency_key = $1 FOR UPDATE",
+        [payload.idempotency_key],
+      );
       if (existing.rows[0]) return existing.rows[0];
       const transaction = await client.query(
         `INSERT INTO accounting_gateway_transactions (gateway_id, external_id, idempotency_key, amount, payment_mode, status, payload)
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [payload.gateway_id, payload.external_id, payload.idempotency_key, payload.amount, payload.payment_mode || null, payload.status || "pending", payload.payload || {}],
+        [
+          payload.gateway_id,
+          payload.external_id,
+          payload.idempotency_key,
+          payload.amount,
+          payload.payment_mode || null,
+          payload.status || "pending",
+          payload.payload || {},
+        ],
       );
       if (transaction.rows[0].status === "success") {
         const accounts = await client.query(
           "SELECT id, code FROM accounting_accounts WHERE code = ANY($1)",
           [["1020", "4000"]],
         );
-        const ids = Object.fromEntries(accounts.rows.map((row) => [row.code, row.id]));
-        if (!ids["1020"] || !ids["4000"]) throw accountingError("Gateway clearing accounts are not configured", 500);
-        const journal = await this.postJournal(client, {
-          description: `Gateway payment ${payload.external_id}`,
-          source_type: "payment_gateway",
-          source_id: String(transaction.rows[0].id),
-          lines: [
-            { account_id: ids["1020"], debit: payload.amount, credit: 0 },
-            { account_id: ids["4000"], debit: 0, credit: payload.amount },
-          ],
-        }, { createdBy: req.user?.id });
-        await client.query("UPDATE accounting_gateway_transactions SET journal_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2", [journal.id, transaction.rows[0].id]);
+        const ids = Object.fromEntries(
+          accounts.rows.map((row) => [row.code, row.id]),
+        );
+        if (!ids["1020"] || !ids["4000"])
+          throw accountingError(
+            "Gateway clearing accounts are not configured",
+            500,
+          );
+        const journal = await this.postJournal(
+          client,
+          {
+            description: `Gateway payment ${payload.external_id}`,
+            source_type: "payment_gateway",
+            source_id: String(transaction.rows[0].id),
+            lines: [
+              { account_id: ids["1020"], debit: payload.amount, credit: 0 },
+              { account_id: ids["4000"], debit: 0, credit: payload.amount },
+            ],
+          },
+          { createdBy: req.user?.id },
+        );
+        await client.query(
+          "UPDATE accounting_gateway_transactions SET journal_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+          [journal.id, transaction.rows[0].id],
+        );
         transaction.rows[0].journal_id = journal.id;
       }
       return transaction.rows[0];
@@ -476,22 +601,40 @@ class AccountingService {
     if (!payload.name) throw accountingError("Bank account name is required");
     const result = await req.tenantPool.query(
       `INSERT INTO accounting_bank_accounts (name, account_number_masked, ledger_account_id) VALUES ($1,$2,$3) RETURNING *`,
-      [payload.name.trim(), payload.account_number_masked || null, payload.ledger_account_id || null],
+      [
+        payload.name.trim(),
+        payload.account_number_masked || null,
+        payload.ledger_account_id || null,
+      ],
     );
     return result.rows[0];
   }
 
   async importBankStatement(payload, req) {
     await this.ensureTables(req.tenantPool);
-    if (!payload.bank_account_id || !Array.isArray(payload.entries)) throw accountingError("Bank account and statement entries are required");
+    if (!payload.bank_account_id || !Array.isArray(payload.entries))
+      throw accountingError("Bank account and statement entries are required");
     return this.withTransaction(req.tenantPool, async (client) => {
       let imported = 0;
       for (const entry of payload.entries) {
-        if (!entry.transaction_date || !entry.reference || Number(entry.amount) <= 0 || !["debit", "credit"].includes(entry.direction)) continue;
+        if (
+          !entry.transaction_date ||
+          !entry.reference ||
+          Number(entry.amount) <= 0 ||
+          !["debit", "credit"].includes(entry.direction)
+        )
+          continue;
         const result = await client.query(
           `INSERT INTO accounting_bank_statements (bank_account_id, transaction_date, reference, description, amount, direction)
            VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,
-          [payload.bank_account_id, entry.transaction_date, entry.reference, entry.description || null, entry.amount, entry.direction],
+          [
+            payload.bank_account_id,
+            entry.transaction_date,
+            entry.reference,
+            entry.description || null,
+            entry.amount,
+            entry.direction,
+          ],
         );
         imported += result.rowCount;
       }
@@ -502,32 +645,47 @@ class AccountingService {
   async postLegacyTransaction(client, payload, sourceId, req) {
     const mode = payload.payment_mode === "bank" ? "1010" : "1000";
     const type = payload.txn_type === "income" ? "income" : "expense";
-    const debitCode = type === "income" ? mode : payload.category === "Staff Salaries" ? "5100" : "5000";
+    const debitCode =
+      type === "income"
+        ? mode
+        : payload.category === "Staff Salaries"
+          ? "5100"
+          : "5000";
     const creditCode = type === "income" ? "4000" : mode;
     const accounts = await client.query(
       "SELECT id, code FROM accounting_accounts WHERE code = ANY($1)",
       [[debitCode, creditCode]],
     );
-    const ids = Object.fromEntries(accounts.rows.map((row) => [row.code, row.id]));
+    const ids = Object.fromEntries(
+      accounts.rows.map((row) => [row.code, row.id]),
+    );
     if (!ids[debitCode] || !ids[creditCode]) {
-      throw accountingError("Default accounting accounts are not configured", 500);
+      throw accountingError(
+        "Default accounting accounts are not configured",
+        500,
+      );
     }
     const existing = await client.query(
       "SELECT id FROM accounting_journals WHERE source_type = $1 AND source_id = $2",
       ["accounts_transaction", String(sourceId)],
     );
-    if (existing.rows.length) return this._journalWithLines(client, existing.rows[0].id);
-    return this.postJournal(client, {
-      journal_date: payload.txn_date,
-      description: payload.particulars || "Accounts transaction",
-      fiscal_year: payload.fiscal_year,
-      source_type: "accounts_transaction",
-      source_id: String(sourceId),
-      lines: [
-        { account_id: ids[debitCode], debit: payload.amount, credit: 0 },
-        { account_id: ids[creditCode], debit: 0, credit: payload.amount },
-      ],
-    }, { createdBy: req.user?.id });
+    if (existing.rows.length)
+      return this._journalWithLines(client, existing.rows[0].id);
+    return this.postJournal(
+      client,
+      {
+        journal_date: payload.txn_date,
+        description: payload.particulars || "Accounts transaction",
+        fiscal_year: payload.fiscal_year,
+        source_type: "accounts_transaction",
+        source_id: String(sourceId),
+        lines: [
+          { account_id: ids[debitCode], debit: payload.amount, credit: 0 },
+          { account_id: ids[creditCode], debit: 0, credit: payload.amount },
+        ],
+      },
+      { createdBy: req.user?.id },
+    );
   }
 
   async _journalWithLines(db, id) {
@@ -544,7 +702,10 @@ class AccountingService {
     await this.ensureTables(req.tenantPool);
     const params = [];
     const where = [];
-    if (filters.fiscal_year) { params.push(filters.fiscal_year); where.push(`j.fiscal_year = $${params.length}`); }
+    if (filters.fiscal_year) {
+      params.push(filters.fiscal_year);
+      where.push(`j.fiscal_year = $${params.length}`);
+    }
     const result = await req.tenantPool.query(
       `SELECT j.*, COALESCE(SUM(l.debit), 0) AS total_debit
        FROM accounting_journals j LEFT JOIN accounting_journal_lines l ON l.journal_id = j.id
@@ -605,74 +766,167 @@ class AccountingService {
 
   async getFinancialReport(report, filters, req) {
     const trialBalance = await this.getTrialBalance(filters, req);
-    if (!["profit-loss", "income-statement", "balance-sheet"].includes(report)) {
+    if (
+      !["profit-loss", "income-statement", "balance-sheet"].includes(report)
+    ) {
       throw accountingError("Unknown financial report", 404);
     }
-    const accounts = report === "balance-sheet"
-      ? trialBalance.accounts.filter((account) => ["asset", "liability", "equity"].includes(account.account_type))
-      : trialBalance.accounts.filter((account) => ["income", "expense"].includes(account.account_type));
+    const accounts =
+      report === "balance-sheet"
+        ? trialBalance.accounts.filter((account) =>
+            ["asset", "liability", "equity"].includes(account.account_type),
+          )
+        : trialBalance.accounts.filter((account) =>
+            ["income", "expense"].includes(account.account_type),
+          );
     return { report, fiscal_year: trialBalance.fiscal_year, accounts };
   }
 
   async listFiscalYears(req) {
     await this.ensureTables(req.tenantPool);
-    const result = await req.tenantPool.query("SELECT * FROM accounting_fiscal_years ORDER BY name DESC");
+    const result = await req.tenantPool.query(
+      "SELECT * FROM accounting_fiscal_years ORDER BY name DESC",
+    );
     return result.rows;
   }
 
   async setActiveFiscalYear(id, req) {
     await this.ensureTables(req.tenantPool);
     return this.withTransaction(req.tenantPool, async (client) => {
-      const target = await client.query("SELECT * FROM accounting_fiscal_years WHERE id = $1 FOR UPDATE", [id]);
-      if (!target.rows.length) throw accountingError("Fiscal year not found", 404);
-      if (target.rows[0].status === "closed" || target.rows[0].locked_at) throw accountingError("Closed fiscal years cannot be activated", 409);
-      await client.query("UPDATE accounting_fiscal_years SET is_active = FALSE");
-      const result = await client.query("UPDATE accounting_fiscal_years SET is_active = TRUE WHERE id = $1 RETURNING *", [id]);
-      await client.query("UPDATE accounting_configuration SET active_fiscal_year = $1, updated_at = CURRENT_TIMESTAMP WHERE id = 1", [target.rows[0].name]);
+      const target = await client.query(
+        "SELECT * FROM accounting_fiscal_years WHERE id = $1 FOR UPDATE",
+        [id],
+      );
+      if (!target.rows.length)
+        throw accountingError("Fiscal year not found", 404);
+      if (target.rows[0].status === "closed" || target.rows[0].locked_at)
+        throw accountingError("Closed fiscal years cannot be activated", 409);
+      await client.query(
+        "UPDATE accounting_fiscal_years SET is_active = FALSE",
+      );
+      const result = await client.query(
+        "UPDATE accounting_fiscal_years SET is_active = TRUE WHERE id = $1 RETURNING *",
+        [id],
+      );
+      await client.query(
+        "UPDATE accounting_configuration SET active_fiscal_year = $1, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+        [target.rows[0].name],
+      );
       return result.rows[0];
     });
   }
 
   async lockFiscalYear(id, req) {
     await this.ensureTables(req.tenantPool);
-    const result = await req.tenantPool.query("UPDATE accounting_fiscal_years SET locked_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'open' RETURNING *", [id]);
-    if (!result.rows.length) throw accountingError("Open fiscal year not found", 404);
+    const result = await req.tenantPool.query(
+      "UPDATE accounting_fiscal_years SET locked_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'open' RETURNING *",
+      [id],
+    );
+    if (!result.rows.length)
+      throw accountingError("Open fiscal year not found", 404);
     return result.rows[0];
   }
 
   async getConfiguration(req) {
     await this.ensureTables(req.tenantPool);
-    const [configuration, taxes, centers, numbering, years] = await Promise.all([
-      req.tenantPool.query("SELECT * FROM accounting_configuration WHERE id = 1"),
-      req.tenantPool.query("SELECT * FROM accounting_tax_rules ORDER BY name"),
-      req.tenantPool.query("SELECT * FROM accounting_cost_centers ORDER BY name"),
-      req.tenantPool.query("SELECT * FROM accounting_voucher_numbering ORDER BY voucher_type"),
-      req.tenantPool.query("SELECT * FROM accounting_fiscal_years ORDER BY name DESC"),
-    ]);
-    return { general: configuration.rows[0] || {}, taxes: taxes.rows, cost_centers: centers.rows, numbering: numbering.rows, fiscal_years: years.rows };
+    const [configuration, taxes, centers, numbering, years] = await Promise.all(
+      [
+        req.tenantPool.query(
+          "SELECT * FROM accounting_configuration WHERE id = 1",
+        ),
+        req.tenantPool.query(
+          "SELECT * FROM accounting_tax_rules ORDER BY name",
+        ),
+        req.tenantPool.query(
+          "SELECT * FROM accounting_cost_centers ORDER BY name",
+        ),
+        req.tenantPool.query(
+          "SELECT * FROM accounting_voucher_numbering ORDER BY voucher_type",
+        ),
+        req.tenantPool.query(
+          "SELECT * FROM accounting_fiscal_years ORDER BY name DESC",
+        ),
+      ],
+    );
+    return {
+      general: configuration.rows[0] || {},
+      taxes: taxes.rows,
+      cost_centers: centers.rows,
+      numbering: numbering.rows,
+      fiscal_years: years.rows,
+    };
   }
 
   async updateConfiguration(payload, req) {
     await this.ensureTables(req.tenantPool);
-    const allowed = ["legal_name", "address", "pan_number", "vat_number", "phone", "email", "logo_url", "letterhead_url", "currency", "decimal_places", "fiscal_year_format", "approval_required", "approval_threshold", "cash_account_id", "bank_account_id", "gateway_clearing_account_id"];
+    const allowed = [
+      "legal_name",
+      "address",
+      "pan_number",
+      "vat_number",
+      "phone",
+      "email",
+      "logo_url",
+      "letterhead_url",
+      "currency",
+      "decimal_places",
+      "fiscal_year_format",
+      "calendar_type",
+      "approval_required",
+      "approval_threshold",
+      "cash_account_id",
+      "bank_account_id",
+      "gateway_clearing_account_id",
+    ];
+    if (
+      payload.calendar_type !== undefined &&
+      !["AD", "BS"].includes(payload.calendar_type)
+    ) {
+      throw accountingError("Accounting calendar must be AD or BS");
+    }
     const values = [];
     const fields = [];
-    for (const key of allowed) if (payload[key] !== undefined) { values.push(payload[key]); fields.push(`${key} = $${values.length}`); }
-    if (fields.length) await req.tenantPool.query(`UPDATE accounting_configuration SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP WHERE id = 1`, values);
+    for (const key of allowed)
+      if (payload[key] !== undefined) {
+        values.push(payload[key]);
+        fields.push(`${key} = $${values.length}`);
+      }
+    if (fields.length)
+      await req.tenantPool.query(
+        `UPDATE accounting_configuration SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP WHERE id = 1`,
+        values,
+      );
     return this.getConfiguration(req);
   }
 
   async createTaxRule(payload, req) {
     await this.ensureTables(req.tenantPool);
-    if (!payload.name || !payload.tax_type || Number(payload.rate) < 0) throw accountingError("Tax name, type, and valid rate are required");
-    const result = await req.tenantPool.query("INSERT INTO accounting_tax_rules (name, tax_type, rate, rate_kind, inclusive, account_id, effective_from, effective_to) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *", [payload.name.trim(), payload.tax_type, payload.rate, payload.rate_kind || "percentage", payload.inclusive === true, payload.account_id || null, payload.effective_from || null, payload.effective_to || null]);
+    if (!payload.name || !payload.tax_type || Number(payload.rate) < 0)
+      throw accountingError("Tax name, type, and valid rate are required");
+    const result = await req.tenantPool.query(
+      "INSERT INTO accounting_tax_rules (name, tax_type, rate, rate_kind, inclusive, account_id, effective_from, effective_to) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+      [
+        payload.name.trim(),
+        payload.tax_type,
+        payload.rate,
+        payload.rate_kind || "percentage",
+        payload.inclusive === true,
+        payload.account_id || null,
+        payload.effective_from || null,
+        payload.effective_to || null,
+      ],
+    );
     return result.rows[0];
   }
 
   async createCostCenter(payload, req) {
     await this.ensureTables(req.tenantPool);
-    if (!payload.code || !payload.name) throw accountingError("Cost center code and name are required");
-    const result = await req.tenantPool.query("INSERT INTO accounting_cost_centers (code, name) VALUES ($1,$2) RETURNING *", [payload.code.trim(), payload.name.trim()]);
+    if (!payload.code || !payload.name)
+      throw accountingError("Cost center code and name are required");
+    const result = await req.tenantPool.query(
+      "INSERT INTO accounting_cost_centers (code, name) VALUES ($1,$2) RETURNING *",
+      [payload.code.trim(), payload.name.trim()],
+    );
     return result.rows[0];
   }
 
@@ -680,12 +934,21 @@ class AccountingService {
     await this.ensureTables(req.tenantPool);
     const name = String(payload.name || payload.fiscal_year || "").trim();
     if (!name) throw accountingError("Fiscal year name is required");
-    if (!payload.starts_on || !payload.ends_on || payload.starts_on > payload.ends_on) throw accountingError("A valid fiscal year date range is required");
+    if (
+      !payload.starts_on ||
+      !payload.ends_on ||
+      payload.starts_on > payload.ends_on
+    )
+      throw accountingError("A valid fiscal year date range is required");
     const overlap = await req.tenantPool.query(
       "SELECT id FROM accounting_fiscal_years WHERE starts_on <= $2::date AND ends_on >= $1::date LIMIT 1",
       [payload.starts_on, payload.ends_on],
     );
-    if (overlap.rows.length) throw accountingError("Fiscal year overlaps an existing fiscal year", 409);
+    if (overlap.rows.length)
+      throw accountingError(
+        "Fiscal year overlaps an existing fiscal year",
+        409,
+      );
     const result = await req.tenantPool.query(
       `INSERT INTO accounting_fiscal_years (name, starts_on, ends_on) VALUES ($1, $2, $3) RETURNING *`,
       [name, payload.starts_on || null, payload.ends_on || null],
@@ -699,7 +962,8 @@ class AccountingService {
       "UPDATE accounting_fiscal_years SET status = 'closed' WHERE id = $1 RETURNING *",
       [id],
     );
-    if (!result.rows.length) throw accountingError("Fiscal year not found", 404);
+    if (!result.rows.length)
+      throw accountingError("Fiscal year not found", 404);
     return result.rows[0];
   }
 
@@ -710,7 +974,8 @@ class AccountingService {
       "UPDATE accounting_journals SET status = 'void', void_reason = $1 WHERE id = $2 AND status = 'posted' RETURNING *",
       [reason || null, id],
     );
-    if (!result.rows.length) throw accountingError("Posted journal not found", 404);
+    if (!result.rows.length)
+      throw accountingError("Posted journal not found", 404);
     return result.rows[0];
   }
 
@@ -718,17 +983,36 @@ class AccountingService {
     await this.ensureTables(req.tenantPool);
     if (!reason?.trim()) throw accountingError("A reversal reason is required");
     return this.withTransaction(req.tenantPool, async (client) => {
-      const original = await client.query("SELECT * FROM accounting_journals WHERE id = $1 AND status = 'posted'", [id]);
-      if (!original.rows.length) throw accountingError("Posted journal not found", 404);
-      const lines = await client.query("SELECT * FROM accounting_journal_lines WHERE journal_id = $1 ORDER BY id", [id]);
-      const reversal = await this.postJournal(client, {
-        description: reason || `Reversal of ${original.rows[0].journal_number}`,
-        fiscal_year: original.rows[0].fiscal_year,
-        source_type: "journal_reversal",
-        source_id: String(id),
-        lines: lines.rows.map((line) => ({ account_id: line.account_id, debit: line.credit, credit: line.debit })),
-      }, { createdBy: req.user?.id });
-      await client.query("UPDATE accounting_journals SET status = 'reversed', reversed_from_id = $1 WHERE id = $2", [reversal.id, id]);
+      const original = await client.query(
+        "SELECT * FROM accounting_journals WHERE id = $1 AND status = 'posted'",
+        [id],
+      );
+      if (!original.rows.length)
+        throw accountingError("Posted journal not found", 404);
+      const lines = await client.query(
+        "SELECT * FROM accounting_journal_lines WHERE journal_id = $1 ORDER BY id",
+        [id],
+      );
+      const reversal = await this.postJournal(
+        client,
+        {
+          description:
+            reason || `Reversal of ${original.rows[0].journal_number}`,
+          fiscal_year: original.rows[0].fiscal_year,
+          source_type: "journal_reversal",
+          source_id: String(id),
+          lines: lines.rows.map((line) => ({
+            account_id: line.account_id,
+            debit: line.credit,
+            credit: line.debit,
+          })),
+        },
+        { createdBy: req.user?.id },
+      );
+      await client.query(
+        "UPDATE accounting_journals SET status = 'reversed', reversed_from_id = $1 WHERE id = $2",
+        [reversal.id, id],
+      );
       return reversal;
     });
   }

@@ -22,7 +22,11 @@ class AccountsController {
 
   updateAccount = async (req, res, next) => {
     try {
-      const data = await accountingService.updateAccount(req.params.id, req.body, req);
+      const data = await accountingService.updateAccount(
+        req.params.id,
+        req.body,
+        req,
+      );
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -31,7 +35,7 @@ class AccountsController {
 
   postJournal = async (req, res, next) => {
     try {
-        await accountingService.ensureTables(req.tenantPool);
+      await accountingService.ensureTables(req.tenantPool);
       const data = await accountingService.withTransaction(
         req.tenantPool,
         (client) =>
@@ -96,38 +100,72 @@ class AccountsController {
 
   setActiveFiscalYear = async (req, res, next) => {
     try {
-      res.json({ success: true, data: await accountingService.setActiveFiscalYear(req.params.id, req) });
-    } catch (err) { next(err); }
+      res.json({
+        success: true,
+        data: await accountingService.setActiveFiscalYear(req.params.id, req),
+      });
+    } catch (err) {
+      next(err);
+    }
   };
 
   lockFiscalYear = async (req, res, next) => {
     try {
-      res.json({ success: true, data: await accountingService.lockFiscalYear(req.params.id, req) });
-    } catch (err) { next(err); }
+      res.json({
+        success: true,
+        data: await accountingService.lockFiscalYear(req.params.id, req),
+      });
+    } catch (err) {
+      next(err);
+    }
   };
 
   getAccountingConfiguration = async (req, res, next) => {
     try {
-      res.json({ success: true, data: await accountingService.getConfiguration(req) });
-    } catch (err) { next(err); }
+      res.json({
+        success: true,
+        data: await accountingService.getConfiguration(req),
+      });
+    } catch (err) {
+      next(err);
+    }
   };
 
   updateAccountingConfiguration = async (req, res, next) => {
     try {
-      res.json({ success: true, data: await accountingService.updateConfiguration(req.body, req) });
-    } catch (err) { next(err); }
+      res.json({
+        success: true,
+        data: await accountingService.updateConfiguration(req.body, req),
+      });
+    } catch (err) {
+      next(err);
+    }
   };
 
   createTaxRule = async (req, res, next) => {
     try {
-      res.status(201).json({ success: true, data: await accountingService.createTaxRule(req.body, req) });
-    } catch (err) { next(err); }
+      res
+        .status(201)
+        .json({
+          success: true,
+          data: await accountingService.createTaxRule(req.body, req),
+        });
+    } catch (err) {
+      next(err);
+    }
   };
 
   createCostCenter = async (req, res, next) => {
     try {
-      res.status(201).json({ success: true, data: await accountingService.createCostCenter(req.body, req) });
-    } catch (err) { next(err); }
+      res
+        .status(201)
+        .json({
+          success: true,
+          data: await accountingService.createCostCenter(req.body, req),
+        });
+    } catch (err) {
+      next(err);
+    }
   };
 
   listJournals = async (req, res, next) => {
@@ -186,44 +224,87 @@ class AccountsController {
 
   listGateways = async (req, res, next) => {
     try {
-      res.json({ success: true, data: await accountingService.listGateways(req) });
-    } catch (err) { next(err); }
+      res.json({
+        success: true,
+        data: await accountingService.listGateways(req),
+      });
+    } catch (err) {
+      next(err);
+    }
   };
 
   saveGateway = async (req, res, next) => {
     try {
-      res.status(201).json({ success: true, data: await accountingService.saveGateway(req.body, req) });
-    } catch (err) { next(err); }
+      res
+        .status(201)
+        .json({
+          success: true,
+          data: await accountingService.saveGateway(req.body, req),
+        });
+    } catch (err) {
+      next(err);
+    }
   };
 
   listGatewayTransactions = async (req, res, next) => {
     try {
-      res.json({ success: true, data: await accountingService.listGatewayTransactions(req.query, req) });
-    } catch (err) { next(err); }
+      res.json({
+        success: true,
+        data: await accountingService.listGatewayTransactions(req.query, req),
+      });
+    } catch (err) {
+      next(err);
+    }
   };
 
   updateGatewayTransaction = async (req, res, next) => {
     try {
-      res.status(201).json({ success: true, data: await accountingService.updateGatewayTransaction(req.body, req) });
-    } catch (err) { next(err); }
+      res
+        .status(201)
+        .json({
+          success: true,
+          data: await accountingService.updateGatewayTransaction(req.body, req),
+        });
+    } catch (err) {
+      next(err);
+    }
   };
 
   listBankStatements = async (req, res, next) => {
     try {
-      res.json({ success: true, data: await accountingService.listBankStatements(req.query, req) });
-    } catch (err) { next(err); }
+      res.json({
+        success: true,
+        data: await accountingService.listBankStatements(req.query, req),
+      });
+    } catch (err) {
+      next(err);
+    }
   };
 
   createBankAccount = async (req, res, next) => {
     try {
-      res.status(201).json({ success: true, data: await accountingService.createBankAccount(req.body, req) });
-    } catch (err) { next(err); }
+      res
+        .status(201)
+        .json({
+          success: true,
+          data: await accountingService.createBankAccount(req.body, req),
+        });
+    } catch (err) {
+      next(err);
+    }
   };
 
   importBankStatement = async (req, res, next) => {
     try {
-      res.status(201).json({ success: true, data: await accountingService.importBankStatement(req.body, req) });
-    } catch (err) { next(err); }
+      res
+        .status(201)
+        .json({
+          success: true,
+          data: await accountingService.importBankStatement(req.body, req),
+        });
+    } catch (err) {
+      next(err);
+    }
   };
 
   voidJournal = async (req, res, next) => {
