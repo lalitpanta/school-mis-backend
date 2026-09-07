@@ -148,6 +148,7 @@ class AccountingService {
       CREATE UNIQUE INDEX IF NOT EXISTS uq_accounting_journal_source
         ON accounting_journals(source_type, source_id)
         WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
+      ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'open';
       ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP;
       ALTER TABLE IF EXISTS accounting_journals ADD COLUMN IF NOT EXISTS fiscal_year VARCHAR(20);
@@ -165,6 +166,12 @@ class AccountingService {
       );
       INSERT INTO accounting_configuration (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
       ALTER TABLE IF EXISTS accounting_configuration ADD COLUMN IF NOT EXISTS calendar_type VARCHAR(2) NOT NULL DEFAULT 'BS';
+      ALTER TABLE IF EXISTS accounting_configuration ADD COLUMN IF NOT EXISTS active_fiscal_year VARCHAR(20);
+      ALTER TABLE IF EXISTS accounting_configuration ADD COLUMN IF NOT EXISTS approval_required BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE IF EXISTS accounting_configuration ADD COLUMN IF NOT EXISTS approval_threshold NUMERIC(14,2) NOT NULL DEFAULT 0;
+      ALTER TABLE IF EXISTS accounting_configuration ADD COLUMN IF NOT EXISTS cash_account_id INTEGER;
+      ALTER TABLE IF EXISTS accounting_configuration ADD COLUMN IF NOT EXISTS bank_account_id INTEGER;
+      ALTER TABLE IF EXISTS accounting_configuration ADD COLUMN IF NOT EXISTS gateway_clearing_account_id INTEGER;
       CREATE TABLE IF NOT EXISTS accounting_tax_rules (
         id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL UNIQUE, tax_type VARCHAR(40) NOT NULL,
         rate NUMERIC(12,4) NOT NULL DEFAULT 0, rate_kind VARCHAR(10) NOT NULL DEFAULT 'percentage',
