@@ -41,6 +41,8 @@ class AccountsController {
         (client) =>
           accountingService.postJournal(client, req.body, {
             createdBy: req.user?.id,
+              idempotencyKey:
+                req.get("Idempotency-Key") || req.body?.idempotency_key,
           }),
       );
       res.status(201).json({ success: true, data });

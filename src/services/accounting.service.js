@@ -19,6 +19,17 @@ function accountingError(message, status = 400) {
   return Object.assign(new Error(message), { status });
 }
 
+function moneyToCents(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) return null;
+  const [whole, fraction = ""] = text.split(".");
+  return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
+}
+
+function centsToMoney(cents) {
+  return `${cents / 100n}.${String(cents % 100n).padStart(2, "0")}`;
+}
+
 class AccountingService {
   async _getConfigurationRow(client) {
     const result = await client.query(
@@ -114,6 +125,7 @@ class AccountingService {
       CREATE TABLE IF NOT EXISTS accounting_journals (
         id SERIAL PRIMARY KEY,
         journal_number VARCHAR(40) NOT NULL UNIQUE,
+        idempotency_key VARCHAR(180),
         journal_date DATE NOT NULL DEFAULT CURRENT_DATE,
         description TEXT,
         fiscal_year VARCHAR(20),
@@ -158,6 +170,7 @@ class AccountingService {
         CHECK (debit >= 0 AND credit >= 0 AND NOT (debit > 0 AND credit > 0))
       );
       CREATE SEQUENCE IF NOT EXISTS accounting_voucher_number_seq;
+      CREATE SEQUENCE IF NOT EXISTS accounting_journal_number_seq;
       CREATE TABLE IF NOT EXISTS accounting_payment_gateways (
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL UNIQUE,
@@ -217,6 +230,10 @@ class AccountingService {
       CREATE UNIQUE INDEX IF NOT EXISTS uq_accounting_journal_source
         ON accounting_journals(source_type, source_id)
         WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
+      ALTER TABLE IF EXISTS accounting_journals ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(180);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_accounting_journal_idempotency
+        ON accounting_journals(idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
       ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'open';
       ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP;
@@ -335,21 +352,23 @@ class AccountingService {
 
   async postJournal(client, payload, meta = {}) {
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
+    const idempotencyKey = payload.idempotency_key || meta.idempotencyKey;
     if (lines.length < 2)
       throw accountingError("A journal needs at least two lines");
-    const totalDebit = lines.reduce(
-      (sum, line) => sum + Number(line.debit || 0),
-      0,
+    const normalizedLines = lines.map((line) => ({
+      ...line,
+      debitCents: moneyToCents(line.debit || 0),
+      creditCents: moneyToCents(line.credit || 0),
+    }));
+    const totalDebit = normalizedLines.reduce(
+      (sum, line) => sum + (line.debitCents || 0n),
+      0n,
     );
-    const totalCredit = lines.reduce(
-      (sum, line) => sum + Number(line.credit || 0),
-      0,
+    const totalCredit = normalizedLines.reduce(
+      (sum, line) => sum + (line.creditCents || 0n),
+      0n,
     );
-    if (
-      !Number.isFinite(totalDebit) ||
-      Math.abs(totalDebit - totalCredit) > 0.005 ||
-      totalDebit <= 0
-    ) {
+    if (totalDebit <= 0n || totalDebit !== totalCredit) {
       throw accountingError("Journal debits and credits must balance");
     }
 
@@ -358,15 +377,15 @@ class AccountingService {
       payload.fiscal_year,
     );
     const fiscalYear = resolvedYear.fiscalYear;
-    const invalidLine = lines.some((line) => {
-      const debit = Number(line.debit || 0);
-      const credit = Number(line.credit || 0);
+    const invalidLine = normalizedLines.some((line) => {
+      const debit = line.debitCents;
+      const credit = line.creditCents;
       return (
         !line.account_id ||
-        debit < 0 ||
-        credit < 0 ||
-        (debit === 0 && credit === 0) ||
-        (debit > 0 && credit > 0)
+        debit === null ||
+        credit === null ||
+        (debit === 0n && credit === 0n) ||
+        (debit > 0n && credit > 0n)
       );
     });
     if (invalidLine)
@@ -392,12 +411,33 @@ class AccountingService {
     if (accountCheck.rows.length !== new Set(accountIds.map(String)).size) {
       throw accountingError("Journal contains an inactive or unknown account");
     }
+    if (idempotencyKey) {
+      const existing = await client.query(
+        "SELECT id FROM accounting_journals WHERE idempotency_key = $1 FOR UPDATE",
+        [String(idempotencyKey)],
+      );
+      if (existing.rows[0]) return this._journalWithLines(client, existing.rows[0].id);
+    }
+    if (payload.source_type && payload.source_id) {
+      const existing = await client.query(
+        "SELECT id FROM accounting_journals WHERE source_type = $1 AND source_id = $2 FOR UPDATE",
+        [payload.source_type, String(payload.source_id)],
+      );
+      if (existing.rows[0]) return this._journalWithLines(client, existing.rows[0].id);
+    }
+    const sequence = await client.query(
+      "SELECT nextval('accounting_journal_number_seq') AS next_number",
+    );
+    const journalNumber =
+      payload.journal_number ||
+      `JNL-${new Date().getFullYear()}-${String(sequence.rows[0].next_number).padStart(8, "0")}`;
     const journal = await client.query(
       `INSERT INTO accounting_journals
-        (journal_number, journal_date, description, fiscal_year, source_type, source_id, created_by)
-       VALUES ($1, COALESCE($2, CURRENT_DATE), $3, $4, $5, $6, $7) RETURNING *`,
+        (journal_number, idempotency_key, journal_date, description, fiscal_year, source_type, source_id, created_by)
+       VALUES ($1, $2, COALESCE($3, CURRENT_DATE), $4, $5, $6, $7, $8) RETURNING *`,
       [
-        payload.journal_number || `JNL-${Date.now()}`,
+        journalNumber,
+        idempotencyKey ? String(idempotencyKey) : null,
         payload.journal_date || null,
         payload.description || payload.particulars || null,
         fiscalYear,
@@ -406,7 +446,7 @@ class AccountingService {
         meta.createdBy || null,
       ],
     );
-    for (const line of lines) {
+    for (const line of normalizedLines) {
       await client.query(
         `INSERT INTO accounting_journal_lines (journal_id, account_id, description, debit, credit)
          VALUES ($1, $2, $3, $4, $5)`,
@@ -414,8 +454,8 @@ class AccountingService {
           journal.rows[0].id,
           line.account_id,
           line.description || null,
-          line.debit || 0,
-          line.credit || 0,
+          centsToMoney(line.debitCents),
+          centsToMoney(line.creditCents),
         ],
       );
     }
