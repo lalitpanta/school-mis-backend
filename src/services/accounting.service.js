@@ -20,6 +20,37 @@ function accountingError(message, status = 400) {
 }
 
 class AccountingService {
+  async _getConfigurationRow(client) {
+    const result = await client.query(
+      "SELECT * FROM accounting_configuration WHERE id = 1 LIMIT 1",
+    );
+    return result.rows[0] || null;
+  }
+
+  async _resolveConfiguredFiscalYear(client, requestedFiscalYear) {
+    const config = await this._getConfigurationRow(client);
+    const fiscalYear = requestedFiscalYear || config?.active_fiscal_year || currentFiscalYear();
+
+    const yearResult = await client.query(
+      "SELECT id, name, status, locked_at FROM accounting_fiscal_years WHERE name = $1 LIMIT 1",
+      [fiscalYear],
+    );
+
+    if (!yearResult.rows.length) {
+      throw accountingError(
+        `Fiscal year "${fiscalYear}" does not exist. Create it before posting transactions.`,
+        404,
+      );
+    }
+
+    const year = yearResult.rows[0];
+    if (year.status === "closed" || year.locked_at) {
+      throw accountingError("This fiscal year is closed and cannot accept new postings", 409);
+    }
+
+    return { fiscalYear, year };
+  }
+
   async ensureTables(db) {
     await db.query(`
       CREATE TABLE IF NOT EXISTS accounting_accounts (
@@ -284,13 +315,11 @@ class AccountingService {
       throw accountingError("Journal debits and credits must balance");
     }
 
-    const configuredYear = await client.query(
-      "SELECT active_fiscal_year FROM accounting_configuration WHERE id = 1",
+    const resolvedYear = await this._resolveConfiguredFiscalYear(
+      client,
+      payload.fiscal_year,
     );
-    const fiscalYear =
-      payload.fiscal_year ||
-      configuredYear.rows[0]?.active_fiscal_year ||
-      currentFiscalYear();
+    const fiscalYear = resolvedYear.fiscalYear;
     const invalidLine = lines.some((line) => {
       const debit = Number(line.debit || 0);
       const credit = Number(line.credit || 0);
@@ -960,6 +989,17 @@ class AccountingService {
       `INSERT INTO accounting_fiscal_years (name, starts_on, ends_on) VALUES ($1, $2, $3) RETURNING *`,
       [name, payload.starts_on || null, payload.ends_on || null],
     );
+
+    const config = await req.tenantPool.query(
+      "SELECT active_fiscal_year FROM accounting_configuration WHERE id = 1 LIMIT 1",
+    );
+    if (!config.rows[0]?.active_fiscal_year) {
+      await req.tenantPool.query(
+        "UPDATE accounting_configuration SET active_fiscal_year = $1, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+        [name],
+      );
+    }
+
     return result.rows[0];
   }
 
