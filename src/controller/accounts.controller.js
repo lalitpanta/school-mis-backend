@@ -31,6 +31,7 @@ class AccountsController {
 
   postJournal = async (req, res, next) => {
     try {
+        await accountingService.ensureTables(req.tenantPool);
       const data = await accountingService.withTransaction(
         req.tenantPool,
         (client) =>
@@ -91,6 +92,42 @@ class AccountsController {
     } catch (err) {
       next(err);
     }
+  };
+
+  setActiveFiscalYear = async (req, res, next) => {
+    try {
+      res.json({ success: true, data: await accountingService.setActiveFiscalYear(req.params.id, req) });
+    } catch (err) { next(err); }
+  };
+
+  lockFiscalYear = async (req, res, next) => {
+    try {
+      res.json({ success: true, data: await accountingService.lockFiscalYear(req.params.id, req) });
+    } catch (err) { next(err); }
+  };
+
+  getAccountingConfiguration = async (req, res, next) => {
+    try {
+      res.json({ success: true, data: await accountingService.getConfiguration(req) });
+    } catch (err) { next(err); }
+  };
+
+  updateAccountingConfiguration = async (req, res, next) => {
+    try {
+      res.json({ success: true, data: await accountingService.updateConfiguration(req.body, req) });
+    } catch (err) { next(err); }
+  };
+
+  createTaxRule = async (req, res, next) => {
+    try {
+      res.status(201).json({ success: true, data: await accountingService.createTaxRule(req.body, req) });
+    } catch (err) { next(err); }
+  };
+
+  createCostCenter = async (req, res, next) => {
+    try {
+      res.status(201).json({ success: true, data: await accountingService.createCostCenter(req.body, req) });
+    } catch (err) { next(err); }
   };
 
   listJournals = async (req, res, next) => {

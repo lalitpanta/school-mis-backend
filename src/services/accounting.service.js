@@ -38,6 +38,8 @@ class AccountingService {
         starts_on DATE,
         ends_on DATE,
         status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+        is_active BOOLEAN NOT NULL DEFAULT FALSE,
+        locked_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
       CREATE TABLE IF NOT EXISTS accounting_journals (
@@ -146,6 +148,36 @@ class AccountingService {
       CREATE UNIQUE INDEX IF NOT EXISTS uq_accounting_journal_source
         ON accounting_journals(source_type, source_id)
         WHERE source_type IS NOT NULL AND source_id IS NOT NULL;
+      ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE IF EXISTS accounting_fiscal_years ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP;
+      CREATE TABLE IF NOT EXISTS accounting_configuration (
+        id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1), legal_name VARCHAR(255), address TEXT,
+        pan_number VARCHAR(100), vat_number VARCHAR(100), phone VARCHAR(100), email VARCHAR(255),
+        logo_url TEXT, letterhead_url TEXT, currency VARCHAR(10) NOT NULL DEFAULT 'NPR',
+        decimal_places SMALLINT NOT NULL DEFAULT 2, fiscal_year_format VARCHAR(30) NOT NULL DEFAULT 'BS',
+        active_fiscal_year VARCHAR(20), approval_required BOOLEAN NOT NULL DEFAULT FALSE,
+        approval_threshold NUMERIC(14,2) NOT NULL DEFAULT 0, cash_account_id INTEGER,
+        bank_account_id INTEGER, gateway_clearing_account_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO accounting_configuration (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+      CREATE TABLE IF NOT EXISTS accounting_tax_rules (
+        id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL UNIQUE, tax_type VARCHAR(40) NOT NULL,
+        rate NUMERIC(12,4) NOT NULL DEFAULT 0, rate_kind VARCHAR(10) NOT NULL DEFAULT 'percentage',
+        inclusive BOOLEAN NOT NULL DEFAULT FALSE, account_id INTEGER, is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        effective_from DATE, effective_to DATE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS accounting_cost_centers (
+        id SERIAL PRIMARY KEY, code VARCHAR(40) NOT NULL UNIQUE, name VARCHAR(150) NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS accounting_voucher_numbering (
+        id SERIAL PRIMARY KEY, voucher_type VARCHAR(20) NOT NULL UNIQUE, prefix VARCHAR(20) NOT NULL,
+        next_number INTEGER NOT NULL DEFAULT 1, fiscal_year_based BOOLEAN NOT NULL DEFAULT TRUE, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO accounting_voucher_numbering (voucher_type, prefix) VALUES
+        ('receipt','RV'), ('payment','PV'), ('contra','CV'), ('journal','JV'), ('sales','SV'), ('purchase','PU')
+      ON CONFLICT (voucher_type) DO NOTHING;
     `);
 
     for (const [code, name, type] of DEFAULT_ACCOUNTS) {
@@ -223,7 +255,8 @@ class AccountingService {
       throw accountingError("Journal debits and credits must balance");
     }
 
-    const fiscalYear = payload.fiscal_year || currentFiscalYear();
+    const configuredYear = await client.query("SELECT active_fiscal_year FROM accounting_configuration WHERE id = 1");
+    const fiscalYear = payload.fiscal_year || configuredYear.rows[0]?.active_fiscal_year || currentFiscalYear();
     const invalidLine = lines.some((line) => {
       const debit = Number(line.debit || 0);
       const credit = Number(line.credit || 0);
@@ -232,10 +265,10 @@ class AccountingService {
     if (invalidLine) throw accountingError("Each journal line must have one positive debit or credit");
 
     const fiscalYearStatus = await client.query(
-      "SELECT status FROM accounting_fiscal_years WHERE name = $1",
+      "SELECT status, locked_at FROM accounting_fiscal_years WHERE name = $1",
       [fiscalYear],
     );
-    if (fiscalYearStatus.rows[0]?.status === "closed") {
+    if (fiscalYearStatus.rows[0]?.status === "closed" || fiscalYearStatus.rows[0]?.locked_at) {
       throw accountingError("This fiscal year is closed", 409);
     }
     const accountIds = lines.map((line) => line.account_id);
@@ -587,10 +620,72 @@ class AccountingService {
     return result.rows;
   }
 
+  async setActiveFiscalYear(id, req) {
+    await this.ensureTables(req.tenantPool);
+    return this.withTransaction(req.tenantPool, async (client) => {
+      const target = await client.query("SELECT * FROM accounting_fiscal_years WHERE id = $1 FOR UPDATE", [id]);
+      if (!target.rows.length) throw accountingError("Fiscal year not found", 404);
+      if (target.rows[0].status === "closed" || target.rows[0].locked_at) throw accountingError("Closed fiscal years cannot be activated", 409);
+      await client.query("UPDATE accounting_fiscal_years SET is_active = FALSE");
+      const result = await client.query("UPDATE accounting_fiscal_years SET is_active = TRUE WHERE id = $1 RETURNING *", [id]);
+      await client.query("UPDATE accounting_configuration SET active_fiscal_year = $1, updated_at = CURRENT_TIMESTAMP WHERE id = 1", [target.rows[0].name]);
+      return result.rows[0];
+    });
+  }
+
+  async lockFiscalYear(id, req) {
+    await this.ensureTables(req.tenantPool);
+    const result = await req.tenantPool.query("UPDATE accounting_fiscal_years SET locked_at = CURRENT_TIMESTAMP WHERE id = $1 AND status = 'open' RETURNING *", [id]);
+    if (!result.rows.length) throw accountingError("Open fiscal year not found", 404);
+    return result.rows[0];
+  }
+
+  async getConfiguration(req) {
+    await this.ensureTables(req.tenantPool);
+    const [configuration, taxes, centers, numbering, years] = await Promise.all([
+      req.tenantPool.query("SELECT * FROM accounting_configuration WHERE id = 1"),
+      req.tenantPool.query("SELECT * FROM accounting_tax_rules ORDER BY name"),
+      req.tenantPool.query("SELECT * FROM accounting_cost_centers ORDER BY name"),
+      req.tenantPool.query("SELECT * FROM accounting_voucher_numbering ORDER BY voucher_type"),
+      req.tenantPool.query("SELECT * FROM accounting_fiscal_years ORDER BY name DESC"),
+    ]);
+    return { general: configuration.rows[0] || {}, taxes: taxes.rows, cost_centers: centers.rows, numbering: numbering.rows, fiscal_years: years.rows };
+  }
+
+  async updateConfiguration(payload, req) {
+    await this.ensureTables(req.tenantPool);
+    const allowed = ["legal_name", "address", "pan_number", "vat_number", "phone", "email", "logo_url", "letterhead_url", "currency", "decimal_places", "fiscal_year_format", "approval_required", "approval_threshold", "cash_account_id", "bank_account_id", "gateway_clearing_account_id"];
+    const values = [];
+    const fields = [];
+    for (const key of allowed) if (payload[key] !== undefined) { values.push(payload[key]); fields.push(`${key} = $${values.length}`); }
+    if (fields.length) await req.tenantPool.query(`UPDATE accounting_configuration SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP WHERE id = 1`, values);
+    return this.getConfiguration(req);
+  }
+
+  async createTaxRule(payload, req) {
+    await this.ensureTables(req.tenantPool);
+    if (!payload.name || !payload.tax_type || Number(payload.rate) < 0) throw accountingError("Tax name, type, and valid rate are required");
+    const result = await req.tenantPool.query("INSERT INTO accounting_tax_rules (name, tax_type, rate, rate_kind, inclusive, account_id, effective_from, effective_to) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *", [payload.name.trim(), payload.tax_type, payload.rate, payload.rate_kind || "percentage", payload.inclusive === true, payload.account_id || null, payload.effective_from || null, payload.effective_to || null]);
+    return result.rows[0];
+  }
+
+  async createCostCenter(payload, req) {
+    await this.ensureTables(req.tenantPool);
+    if (!payload.code || !payload.name) throw accountingError("Cost center code and name are required");
+    const result = await req.tenantPool.query("INSERT INTO accounting_cost_centers (code, name) VALUES ($1,$2) RETURNING *", [payload.code.trim(), payload.name.trim()]);
+    return result.rows[0];
+  }
+
   async createFiscalYear(payload, req) {
     await this.ensureTables(req.tenantPool);
     const name = String(payload.name || payload.fiscal_year || "").trim();
     if (!name) throw accountingError("Fiscal year name is required");
+    if (!payload.starts_on || !payload.ends_on || payload.starts_on > payload.ends_on) throw accountingError("A valid fiscal year date range is required");
+    const overlap = await req.tenantPool.query(
+      "SELECT id FROM accounting_fiscal_years WHERE starts_on <= $2::date AND ends_on >= $1::date LIMIT 1",
+      [payload.starts_on, payload.ends_on],
+    );
+    if (overlap.rows.length) throw accountingError("Fiscal year overlaps an existing fiscal year", 409);
     const result = await req.tenantPool.query(
       `INSERT INTO accounting_fiscal_years (name, starts_on, ends_on) VALUES ($1, $2, $3) RETURNING *`,
       [name, payload.starts_on || null, payload.ends_on || null],

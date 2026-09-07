@@ -1,5 +1,8 @@
 const { centralPool, getTenantPool } = require("../config/tenantDb");
 const feeStructureMigration = require("../../migrations/20260904000000-add-fee-structure-module");
+const accountingMigration = require("../../migrations/20260905000000-create-accounting-engine");
+const gatewayBankMigration = require("../../migrations/20260906000000-add-gateway-bank-reconciliation");
+const accountingRepairMigration = require("../../migrations/20260907000000-repair-accounting-fiscal-year-and-settings");
 
 /**
  * Tenant Schema Patcher Service
@@ -281,6 +284,15 @@ async function patchAllTenantSchemas() {
           }
 
           await feeStructureMigration.up({
+            runSql: (sql) => tenantClient.query(sql),
+          });
+          await accountingMigration.up({
+            runSql: (sql) => tenantClient.query(sql),
+          });
+          await gatewayBankMigration.up({
+            runSql: (sql) => tenantClient.query(sql),
+          });
+          await accountingRepairMigration.up({
             runSql: (sql) => tenantClient.query(sql),
           });
 

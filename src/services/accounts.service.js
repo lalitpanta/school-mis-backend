@@ -59,6 +59,7 @@ class AccountsService {
         created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE IF EXISTS accounts_transactions ADD COLUMN IF NOT EXISTS fiscal_year VARCHAR(20);
 
       CREATE TABLE IF NOT EXISTS accounts_payroll (
         id             SERIAL PRIMARY KEY,
@@ -78,6 +79,7 @@ class AccountsService {
         created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE IF EXISTS accounts_payroll ADD COLUMN IF NOT EXISTS fiscal_year VARCHAR(20);
     `);
   }
 

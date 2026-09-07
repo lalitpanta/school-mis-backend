@@ -49,6 +49,12 @@ router.patch(
   requirePermission("accounts.close_period"),
   ctrl.closeFiscalYear,
 );
+router.patch("/accounting/fiscal-years/:id/active", requirePermission("accounts.manage"), ctrl.setActiveFiscalYear);
+router.patch("/accounting/fiscal-years/:id/lock", requirePermission("accounts.close_period"), ctrl.lockFiscalYear);
+router.get("/accounting/configuration", requirePermission("accounts.view"), ctrl.getAccountingConfiguration);
+router.patch("/accounting/configuration", requirePermission("accounts.manage"), ctrl.updateAccountingConfiguration);
+router.post("/accounting/tax-rules", requirePermission("accounts.manage"), ctrl.createTaxRule);
+router.post("/accounting/cost-centers", requirePermission("accounts.manage"), ctrl.createCostCenter);
 router.get(
   "/accounting/journals",
   requirePermission("accounts.view"),
