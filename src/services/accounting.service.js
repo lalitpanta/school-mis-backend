@@ -51,6 +51,44 @@ class AccountingService {
     return { fiscalYear, year };
   }
 
+  async _requireFiscalYear(client, fiscalYear) {
+    const result = await client.query(
+      "SELECT id, name, status, locked_at FROM accounting_fiscal_years WHERE name = $1 LIMIT 1",
+      [fiscalYear],
+    );
+    if (!result.rows.length) {
+      throw accountingError(
+        `Fiscal year "${fiscalYear}" does not exist. Create it before running reports.`,
+        404,
+      );
+    }
+    return result.rows[0];
+  }
+
+  async _assertFiscalYearBalanced(client, fiscalYear) {
+    const result = await client.query(
+      `SELECT
+         COALESCE(SUM(l.debit), 0) AS total_debit,
+         COALESCE(SUM(l.credit), 0) AS total_credit
+       FROM accounting_journal_lines l
+       JOIN accounting_journals j ON j.id = l.journal_id
+       WHERE j.status = 'posted' AND j.fiscal_year = $1`,
+      [fiscalYear],
+    );
+
+    const totalDebit = Number(result.rows[0]?.total_debit || 0);
+    const totalCredit = Number(result.rows[0]?.total_credit || 0);
+
+    if (Math.abs(totalDebit - totalCredit) > 0.005) {
+      throw accountingError(
+        `Trial balance is out of balance for fiscal year "${fiscalYear}"`,
+        409,
+      );
+    }
+
+    return { totalDebit, totalCredit };
+  }
+
   async ensureTables(db) {
     await db.query(`
       CREATE TABLE IF NOT EXISTS accounting_accounts (
@@ -761,7 +799,10 @@ class AccountingService {
 
   async getLedger(filters, req) {
     await this.ensureTables(req.tenantPool);
-    const params = [filters.fiscal_year || currentFiscalYear()];
+    const fiscalYear = filters.fiscal_year || currentFiscalYear();
+    await this._requireFiscalYear(req.tenantPool, fiscalYear);
+
+    const params = [fiscalYear];
     const where = ["j.status = 'posted'", "j.fiscal_year = $1"];
     if (filters.account_id) {
       params.push(filters.account_id);
@@ -788,6 +829,9 @@ class AccountingService {
   async getTrialBalance(filters, req) {
     await this.ensureTables(req.tenantPool);
     const fiscalYear = filters.fiscal_year || currentFiscalYear();
+    await this._requireFiscalYear(req.tenantPool, fiscalYear);
+    await this._assertFiscalYearBalanced(req.tenantPool, fiscalYear);
+
     const result = await req.tenantPool.query(
       `SELECT a.id, a.code, a.name, a.account_type,
         COALESCE(SUM(l.debit) FILTER (WHERE j.id IS NOT NULL), 0) AS debit,
