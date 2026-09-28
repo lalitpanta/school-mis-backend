@@ -23,13 +23,15 @@ masterRouter.get("/results/public", resultController.getPublicStudentResults);
 masterRouter.get(
   "/settings/audit-logs",
   authenticateToken,
-  requireAdmin,
+  attachTenantContext,
+  requireAdminOrTenantModule("settings"),
   auditCTRL.getAuditLogs,
 );
 masterRouter.get(
   "/settings/audit-stats",
   authenticateToken,
-  requireAdmin,
+  attachTenantContext,
+  requireAdminOrTenantModule("settings"),
   auditCTRL.getAuditStats,
 );
 
