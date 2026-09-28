@@ -92,6 +92,33 @@ async function initializeCentralDatabase() {
     `);
     console.log("✅ Shared settings table created");
 
+    console.log("🔄 Creating audit log table if not exists...");
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id SERIAL PRIMARY KEY,
+        category VARCHAR(50) NOT NULL,
+        action VARCHAR(100) NOT NULL,
+        title VARCHAR(255),
+        message TEXT,
+        severity VARCHAR(20) DEFAULT 'info',
+        user_email VARCHAR(255),
+        user_type VARCHAR(50),
+        tenant_id UUID,
+        tenant_name VARCHAR(255),
+        ip_address VARCHAR(100),
+        device VARCHAR(255),
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)`,
+    );
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_audit_logs_category ON audit_logs(category)`,
+    );
+    console.log("✅ Audit log table created");
+
     console.log("🔄 Creating platform settings table if not exists...");
     await client.query(`
       CREATE TABLE IF NOT EXISTS platform_settings (
