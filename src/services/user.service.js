@@ -1,5 +1,40 @@
 const bcrypt = require("bcrypt");
 const { v4: uuidv4 } = require("uuid");
+const auditLogService = require("./auditLog.service");
+
+function buildActorContext(req) {
+  const actor = req?.user || {};
+  return {
+    userEmail: actor.email || actor.userEmail || null,
+    userType: actor.type || actor.userType || null,
+    tenantId: actor.tenantId || req?.tenantId || null,
+    tenantName: actor.tenantName || req?.tenantName || null,
+    ipAddress: req?.ip || null,
+    device: req?.headers?.["user-agent"] || null,
+  };
+}
+
+async function logUserEvent(req, payload = {}) {
+  try {
+    const actor = buildActorContext(req);
+    await auditLogService.recordAuditEvent({
+      category: payload.category || "user_roles",
+      action: payload.action || "updated",
+      title: payload.title || "User activity",
+      message: payload.message || "User activity recorded.",
+      severity: payload.severity || "info",
+      userEmail: payload.userEmail || actor.userEmail || null,
+      userType: payload.userType || actor.userType || null,
+      tenantId: payload.tenantId || actor.tenantId || null,
+      tenantName: payload.tenantName || actor.tenantName || null,
+      ipAddress: actor.ipAddress || null,
+      device: actor.device || null,
+      metadata: payload.metadata || {},
+    });
+  } catch (error) {
+    console.error("User audit log failed:", error.message);
+  }
+}
 
 /**
  * Hash a password
@@ -147,7 +182,22 @@ const createUser = async (userData, req) => {
       true,
     ]);
 
-    return result.rows[0];
+    const createdUser = result.rows[0];
+    await logUserEvent(req, {
+      category: "user_roles",
+      action: "create_user",
+      title: "User created",
+      message: `Created user ${createdUser.email}.`,
+      severity: "success",
+      userEmail: createdUser.email,
+      metadata: {
+        userId: createdUser.id,
+        name: createdUser.name || null,
+        phone: createdUser.phone || null,
+      },
+    });
+
+    return createdUser;
   } catch (err) {
     throw new Error(`Failed to create user: ${err.message}`);
   }
@@ -362,13 +412,33 @@ const updateUser = async (userId, userData, req) => {
       RETURNING id, email, name, phone, department_store, authority_mode, module_access, teacher_id, student_id, employee_id, section_id, is_active, created_at, updated_at
     `;
 
+    const existingUser = await pool.query(
+      "SELECT id, email, name, phone, department_store, authority_mode, is_active FROM tenant_users WHERE id = $1",
+      [userId],
+    );
+
     const result = await pool.query(query, values);
 
     if (result.rows.length === 0) {
       throw new Error("User not found");
     }
 
-    return result.rows[0];
+    const updatedUser = result.rows[0];
+    await logUserEvent(req, {
+      category: "user_roles",
+      action: "update_user",
+      title: "User updated",
+      message: `Updated user ${updatedUser.email}.`,
+      severity: "info",
+      userEmail: updatedUser.email,
+      metadata: {
+        userId: userId,
+        previous: existingUser.rows[0] || null,
+        current: updatedUser,
+      },
+    });
+
+    return updatedUser;
   } catch (err) {
     throw new Error(`Failed to update user: ${err.message}`);
   }
@@ -600,7 +670,20 @@ const resetPassword = async (userId, newPassword, req) => {
       throw new Error("User not found");
     }
 
-    return result.rows[0];
+    const updatedUser = result.rows[0];
+    await logUserEvent(req, {
+      category: "security",
+      action: "reset_password",
+      title: "Password reset",
+      message: `Reset password for user ${updatedUser.email}.`,
+      severity: "warning",
+      userEmail: updatedUser.email,
+      metadata: {
+        userId,
+      },
+    });
+
+    return updatedUser;
   } catch (err) {
     throw new Error(`Failed to reset password: ${err.message}`);
   }
@@ -613,6 +696,17 @@ const deleteUser = async (userId, req) => {
   try {
     const pool = req?.tenantPool || require("../config/db");
 
+    const existingUserQuery = `
+      SELECT id, email, name, phone, is_active FROM tenant_users WHERE id = $1
+    `;
+    const existingUserResult = await pool.query(existingUserQuery, [userId]);
+
+    if (existingUserResult.rows.length === 0) {
+      throw new Error("User not found");
+    }
+
+    const deletedUser = existingUserResult.rows[0];
+
     const query = `
       DELETE FROM tenant_users 
       WHERE id = $1
@@ -624,6 +718,20 @@ const deleteUser = async (userId, req) => {
     if (result.rows.length === 0) {
       throw new Error("User not found");
     }
+
+    await logUserEvent(req, {
+      category: "user_roles",
+      action: "delete_user",
+      title: "User deleted",
+      message: `Deleted user ${deletedUser.email}.`,
+      severity: "warning",
+      userEmail: deletedUser.email,
+      metadata: {
+        userId: deletedUser.id,
+        name: deletedUser.name || null,
+        phone: deletedUser.phone || null,
+      },
+    });
 
     return result.rows[0];
   } catch (err) {
@@ -645,13 +753,33 @@ const toggleUserActive = async (userId, isActive, req) => {
       RETURNING id, email, is_active, created_at, updated_at
     `;
 
+    const existingUserResult = await pool.query(
+      "SELECT id, email, is_active FROM tenant_users WHERE id = $1",
+      [userId],
+    );
+
     const result = await pool.query(query, [isActive, userId]);
 
     if (result.rows.length === 0) {
       throw new Error("User not found");
     }
 
-    return result.rows[0];
+    const updatedUser = result.rows[0];
+    await logUserEvent(req, {
+      category: "user_roles",
+      action: isActive ? "activate_user" : "deactivate_user",
+      title: isActive ? "User activated" : "User deactivated",
+      message: `${isActive ? "Activated" : "Deactivated"} user ${updatedUser.email}.`,
+      severity: isActive ? "success" : "warning",
+      userEmail: updatedUser.email,
+      metadata: {
+        userId: updatedUser.id,
+        previousStatus: existingUserResult.rows[0]?.is_active ?? null,
+        newStatus: updatedUser.is_active,
+      },
+    });
+
+    return updatedUser;
   } catch (err) {
     throw new Error(`Failed to toggle user status: ${err.message}`);
   }
@@ -699,7 +827,20 @@ const assignRolesToUser = async (userId, roleIds, req) => {
       );
 
       await pool.query("COMMIT");
-      return result.rows[0];
+      const assignedUser = result.rows[0];
+      await logUserEvent(req, {
+        category: "user_roles",
+        action: "assign_roles",
+        title: "User roles updated",
+        message: `Updated roles for user ${assignedUser?.email || userId}.`,
+        severity: "info",
+        userEmail: assignedUser?.email || null,
+        metadata: {
+          userId,
+          roleIds,
+        },
+      });
+      return assignedUser;
     } catch (err) {
       await pool.query("ROLLBACK");
       throw err;
