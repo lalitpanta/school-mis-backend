@@ -12,6 +12,9 @@ const {
 } = require("../middleware/auth.middleware");
 const resultController = require("../controller/result.controller");
 const auditCTRL = require("../controller/audit.controller");
+const auditMutationRequest = require("../middleware/audit.middleware");
+
+masterRouter.use(auditMutationRequest);
 
 // Authentication routes (public & protected)
 masterRouter.use("/auth", require("./v1/auth.routing"));
