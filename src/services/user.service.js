@@ -190,6 +190,8 @@ const createUser = async (userData, req) => {
       message: `Created user ${createdUser.email}.`,
       severity: "success",
       userEmail: createdUser.email,
+      tenantId: req?.tenantId || req?.user?.tenantId || null,
+      tenantName: req?.tenantName || null,
       metadata: {
         userId: createdUser.id,
         name: createdUser.name || null,
@@ -431,6 +433,8 @@ const updateUser = async (userId, userData, req) => {
       message: `Updated user ${updatedUser.email}.`,
       severity: "info",
       userEmail: updatedUser.email,
+      tenantId: req?.tenantId || req?.user?.tenantId || null,
+      tenantName: req?.tenantName || null,
       metadata: {
         userId: userId,
         previous: existingUser.rows[0] || null,
@@ -678,6 +682,8 @@ const resetPassword = async (userId, newPassword, req) => {
       message: `Reset password for user ${updatedUser.email}.`,
       severity: "warning",
       userEmail: updatedUser.email,
+      tenantId: req?.tenantId || req?.user?.tenantId || null,
+      tenantName: req?.tenantName || null,
       metadata: {
         userId,
       },
@@ -726,6 +732,8 @@ const deleteUser = async (userId, req) => {
       message: `Deleted user ${deletedUser.email}.`,
       severity: "warning",
       userEmail: deletedUser.email,
+      tenantId: req?.tenantId || req?.user?.tenantId || null,
+      tenantName: req?.tenantName || null,
       metadata: {
         userId: deletedUser.id,
         name: deletedUser.name || null,
@@ -772,6 +780,8 @@ const toggleUserActive = async (userId, isActive, req) => {
       message: `${isActive ? "Activated" : "Deactivated"} user ${updatedUser.email}.`,
       severity: isActive ? "success" : "warning",
       userEmail: updatedUser.email,
+      tenantId: req?.tenantId || req?.user?.tenantId || null,
+      tenantName: req?.tenantName || null,
       metadata: {
         userId: updatedUser.id,
         previousStatus: existingUserResult.rows[0]?.is_active ?? null,
@@ -835,6 +845,8 @@ const assignRolesToUser = async (userId, roleIds, req) => {
         message: `Updated roles for user ${assignedUser?.email || userId}.`,
         severity: "info",
         userEmail: assignedUser?.email || null,
+        tenantId: req?.tenantId || req?.user?.tenantId || null,
+        tenantName: req?.tenantName || null,
         metadata: {
           userId,
           roleIds,

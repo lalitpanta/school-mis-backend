@@ -10,8 +10,16 @@ class AuditController {
         category,
         severity,
         tenantName,
-        tenantId,
+        tenantId: queryTenantId,
       } = req.query;
+
+      const tenantId =
+        queryTenantId ||
+        req.tenantId ||
+        req.user?.tenantId ||
+        (req.user?.type === "tenant" ? req.user.id : null) ||
+        (req.user?.type === "staff" ? req.user.tenantId : null);
+
       const result = await auditLogService.getAuditLogs({
         limit,
         offset,
@@ -39,7 +47,14 @@ class AuditController {
 
   getAuditStats = async (req, res, next) => {
     try {
-      const { tenantName, tenantId } = req.query;
+      const { tenantName, tenantId: queryTenantId } = req.query;
+      const tenantId =
+        queryTenantId ||
+        req.tenantId ||
+        req.user?.tenantId ||
+        (req.user?.type === "tenant" ? req.user.id : null) ||
+        (req.user?.type === "staff" ? req.user.tenantId : null);
+
       const result = await auditLogService.getAuditStats({
         tenantName,
         tenantId,
