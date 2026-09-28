@@ -336,7 +336,8 @@ class TeacherService {
           message: `Created teacher ${createdTeacher?.full_name || data?.full_name || "record"}.`,
           severity: "success",
           metadata: {
-            employeeId: createdTeacher?.employee_id || data?.employee_id || null,
+            employeeId:
+              createdTeacher?.employee_id || data?.employee_id || null,
           },
         });
       } catch (auditErr) {
@@ -465,7 +466,8 @@ class TeacherService {
             req,
             entityType: "teacher",
             entityId: id,
-            entityName: updatedTeacher.full_name || data?.full_name || "Teacher",
+            entityName:
+              updatedTeacher.full_name || data?.full_name || "Teacher",
             action: "update",
             title: "Teacher updated",
             message: `Updated teacher ${updatedTeacher.full_name || data?.full_name || "record"}.`,
@@ -489,7 +491,10 @@ class TeacherService {
     try {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensureTable(pool);
-      const existingTeacher = await pool.query("SELECT id, full_name FROM teachers WHERE id = $1", [id]);
+      const existingTeacher = await pool.query(
+        "SELECT id, full_name FROM teachers WHERE id = $1",
+        [id],
+      );
       const query = `DELETE FROM teachers WHERE id = $1 RETURNING id`;
       const result = await pool.query(query, [id]);
 

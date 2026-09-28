@@ -3,6 +3,7 @@ const router = express.Router();
 const settingsCTRL = require("../../controller/settings.controller");
 const noticesCTRL = require("../../controller/notices.controller");
 const auditCTRL = require("../../controller/audit.controller");
+const activeSessionCTRL = require("../../controller/activeSession.controller");
 
 if (process.env.NODE_ENV !== "production") {
   router.use((req, res, next) => {
@@ -76,6 +77,12 @@ router.put("/theme", settingsCTRL.updateThemeSettings);
 // Audit logs
 router.get("/audit-logs", auditCTRL.getAuditLogs);
 router.get("/audit-stats", auditCTRL.getAuditStats);
+
+// Tenant-scoped active sign-in sessions
+router.get("/active-sessions", activeSessionCTRL.list);
+router.delete("/active-sessions/:sessionId", activeSessionCTRL.revoke);
+router.post("/active-sessions/revoke-others", activeSessionCTRL.revokeOthers);
+router.post("/active-sessions/logout", activeSessionCTRL.endCurrent);
 
 // Students management under settings
 const studentsCTRL = require("../../controller/students.controller");

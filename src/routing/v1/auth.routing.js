@@ -24,7 +24,9 @@ const {
 const {
   authenticateToken,
   requireAdmin,
+  attachTenantContext,
 } = require("../../middleware/auth.middleware");
+const activeSessionCTRL = require("../../controller/activeSession.controller");
 
 /**
  * Public routes
@@ -50,6 +52,14 @@ router.post("/password/reset", resetPasswordWithOtpController);
 /**
  * Protected routes (require authentication)
  */
+
+// Change tenant password
+router.post(
+  "/session/logout",
+  authenticateToken,
+  attachTenantContext,
+  activeSessionCTRL.endCurrent,
+);
 
 // Change tenant password
 router.post(

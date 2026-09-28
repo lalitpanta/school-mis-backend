@@ -8,6 +8,7 @@ const {
   registerTenantConnection,
 } = require("../config/tenantDb");
 const auditLogService = require("./auditLog.service");
+const activeSessionService = require("./activeSession.service");
 const emailService = require("./email.service");
 const { createTenantProject, deleteTenantProject } = require("./neon.service");
 
@@ -184,7 +185,7 @@ async function adminLogin(email, password) {
 /**
  * Tenant Login
  */
-async function tenantLogin(tenantSlug, email, password) {
+async function tenantLogin(tenantSlug, email, password, req) {
   const client = await centralPool.connect();
 
   try {
@@ -281,8 +282,10 @@ async function tenantLogin(tenantSlug, email, password) {
       }
     }
 
+    const sessionId = uuidv4();
     const token = generateToken(
       {
+        sid: sessionId,
         id: tenant.id,
         email: tenant.email,
         name: tenant.name,
@@ -294,6 +297,14 @@ async function tenantLogin(tenantSlug, email, password) {
       },
       process.env.JWT_EXPIRE_TENANT || "24h",
     );
+
+    await activeSessionService.createActiveSession({
+      token,
+      sessionId,
+      user: { id: tenant.id, email: tenant.email, type: "tenant" },
+      tenant,
+      req,
+    });
 
     await auditLogService.recordAuditEvent({
       category: "authentication",
@@ -899,7 +910,7 @@ async function permanentlyDeleteTenant(tenantId, actor = {}) {
  * Staff/User Login
  * Authenticates a staff member or user within a tenant
  */
-async function staffLogin(tenantSlug, email, password) {
+async function staffLogin(tenantSlug, email, password, req) {
   const client = await centralPool.connect();
 
   try {
@@ -1101,8 +1112,10 @@ async function staffLogin(tenantSlug, email, password) {
       );
 
       // Generate token
+      const sessionId = uuidv4();
       const token = generateToken(
         {
+          sid: sessionId,
           id: user.id,
           email: user.email,
           name: user.name || email.split("@")[0],
@@ -1116,6 +1129,14 @@ async function staffLogin(tenantSlug, email, password) {
         },
         process.env.JWT_EXPIRE_USER || "24h",
       );
+
+      await activeSessionService.createActiveSession({
+        token,
+        sessionId,
+        user: { id: user.id, email: user.email, type: "staff" },
+        tenant,
+        req,
+      });
 
       return {
         token,
@@ -1141,7 +1162,7 @@ async function staffLogin(tenantSlug, email, password) {
 /**
  * Unified Login - Works for Admin, Tenant, and Staff
  */
-async function unifiedLogin(email, password, tenantSlug = null) {
+async function unifiedLogin(email, password, tenantSlug = null, req) {
   // Try admin login first (no tenantSlug needed)
   if (!tenantSlug) {
     try {
@@ -1159,7 +1180,7 @@ async function unifiedLogin(email, password, tenantSlug = null) {
   // If tenantSlug provided, try tenant login first, then staff login
   if (tenantSlug) {
     try {
-      const result = await tenantLogin(tenantSlug, email, password);
+      const result = await tenantLogin(tenantSlug, email, password, req);
       return {
         success: true,
         data: result,
@@ -1170,7 +1191,7 @@ async function unifiedLogin(email, password, tenantSlug = null) {
     }
 
     try {
-      const result = await staffLogin(tenantSlug, email, password);
+      const result = await staffLogin(tenantSlug, email, password, req);
       return {
         success: true,
         data: result,

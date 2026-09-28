@@ -23,7 +23,9 @@ function sanitizePayload(payload) {
     if (value && typeof value === "object") {
       const out = {};
       for (const [key, nested] of Object.entries(value)) {
-        out[key] = forbiddenKeys.has(key.toLowerCase()) ? "[redacted]" : walk(nested);
+        out[key] = forbiddenKeys.has(key.toLowerCase())
+          ? "[redacted]"
+          : walk(nested);
       }
       return out;
     }
@@ -69,7 +71,24 @@ function inferEntityFromPath(path = "") {
 
 function inferCategory(entityName) {
   const normalized = String(entityName || "").toLowerCase();
-  if (["students", "teachers", "employees", "classes", "sections", "rooms", "departments", "attendance", "daily reports", "results", "calendar", "year", "month", "day"].includes(normalized)) {
+  if (
+    [
+      "students",
+      "teachers",
+      "employees",
+      "classes",
+      "sections",
+      "rooms",
+      "departments",
+      "attendance",
+      "daily reports",
+      "results",
+      "calendar",
+      "year",
+      "month",
+      "day",
+    ].includes(normalized)
+  ) {
     return "academic";
   }
   if (["users", "roles", "permissions"].includes(normalized)) {
@@ -125,7 +144,12 @@ function auditMutationRequest(req, res, next) {
       action,
       title: getTitleLabel(entityName, req.method),
       message: `${actor.email || "User"} performed ${action} on ${entityName} via ${path}.`,
-      severity: action === "delete" ? "warning" : action === "create" ? "success" : "info",
+      severity:
+        action === "delete"
+          ? "warning"
+          : action === "create"
+            ? "success"
+            : "info",
       userEmail: actor.email || actor.userEmail || null,
       userType: actor.type || actor.userType || null,
       tenantId: req.tenantId || actor.tenantId || null,

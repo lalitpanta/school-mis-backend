@@ -63,7 +63,7 @@ async function loginTenant(req, res) {
       });
     }
 
-    const result = await tenantLogin(tenantSlug, email, password);
+    const result = await tenantLogin(tenantSlug, email, password, req);
     res.status(200).json({
       success: true,
       message: "Tenant login successful",
@@ -92,7 +92,7 @@ async function loginStaff(req, res) {
       });
     }
 
-    const result = await staffLogin(tenantSlug, email, password);
+    const result = await staffLogin(tenantSlug, email, password, req);
     res.status(200).json({
       success: true,
       message: "Staff login successful",
@@ -327,7 +327,7 @@ async function unifiedLoginController(req, res) {
       });
     }
 
-    const result = await unifiedLogin(email, password, tenantSlug);
+    const result = await unifiedLogin(email, password, tenantSlug, req);
 
     res.status(200).json({
       success: true,

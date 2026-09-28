@@ -127,7 +127,8 @@ class RoleService {
             req,
             entityType: "role",
             entityId: roleId,
-            entityName: updatedRole.role_name || updateData?.role_name || "Role",
+            entityName:
+              updatedRole.role_name || updateData?.role_name || "Role",
             action: "update",
             title: "Role updated",
             message: `Updated role ${updatedRole.role_name || updateData?.role_name || "record"}.`,
@@ -153,7 +154,10 @@ class RoleService {
   deleteRole = async (roleId, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
-      const existingRole = await pool.query("SELECT id, role_name FROM roles WHERE id = $1", [roleId]);
+      const existingRole = await pool.query(
+        "SELECT id, role_name FROM roles WHERE id = $1",
+        [roleId],
+      );
       const query = `DELETE FROM roles WHERE id = $1 AND is_system = false RETURNING *`;
       const result = await pool.query(query, [roleId]);
 

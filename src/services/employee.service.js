@@ -269,13 +269,15 @@ class EmployeeService {
           req,
           entityType: "employee",
           entityId: createdEmployee?.id ?? null,
-          entityName: createdEmployee?.full_name || data?.full_name || "Employee",
+          entityName:
+            createdEmployee?.full_name || data?.full_name || "Employee",
           action: "create",
           title: "Employee created",
           message: `Created employee ${createdEmployee?.full_name || data?.full_name || "record"}.`,
           severity: "success",
           metadata: {
-            employeeId: createdEmployee?.employee_id || data?.employee_id || null,
+            employeeId:
+              createdEmployee?.employee_id || data?.employee_id || null,
           },
         });
       } catch (auditErr) {
@@ -379,7 +381,8 @@ class EmployeeService {
             req,
             entityType: "employee",
             entityId: id,
-            entityName: updatedEmployee.full_name || data?.full_name || "Employee",
+            entityName:
+              updatedEmployee.full_name || data?.full_name || "Employee",
             action: "update",
             title: "Employee updated",
             message: `Updated employee ${updatedEmployee.full_name || data?.full_name || "record"}.`,
@@ -402,7 +405,10 @@ class EmployeeService {
   deleteEmployee = async (id, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
-      const existingEmployee = await pool.query("SELECT id, full_name FROM employees WHERE id = $1", [id]);
+      const existingEmployee = await pool.query(
+        "SELECT id, full_name FROM employees WHERE id = $1",
+        [id],
+      );
       const query = `DELETE FROM employees WHERE id = $1 RETURNING *`;
       const result = await pool.query(query, [id]);
 

@@ -119,6 +119,32 @@ async function initializeCentralDatabase() {
     );
     console.log("✅ Audit log table created");
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS active_sessions (
+        session_id UUID PRIMARY KEY,
+        token_fingerprint VARCHAR(64) UNIQUE,
+        tenant_id UUID NOT NULL,
+        user_id TEXT NOT NULL,
+        user_email VARCHAR(255) NOT NULL,
+        user_type VARCHAR(50),
+        ip_address VARCHAR(100),
+        user_agent TEXT,
+        signed_in_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_active_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ
+      );
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS idx_active_sessions_tenant_active ON active_sessions(tenant_id, revoked_at, last_active_at DESC)`,
+    );
+    await client.query(
+      `ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS token_fingerprint VARCHAR(64)`,
+    );
+    await client.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_active_sessions_token_fingerprint ON active_sessions(token_fingerprint) WHERE token_fingerprint IS NOT NULL`,
+    );
+
     console.log("🔄 Creating platform settings table if not exists...");
     await client.query(`
       CREATE TABLE IF NOT EXISTS platform_settings (

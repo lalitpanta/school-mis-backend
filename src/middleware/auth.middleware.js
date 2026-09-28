@@ -3,7 +3,7 @@ const { verifyToken, getTenantById } = require("../services/auth.service");
 /**
  * Middleware to verify JWT token
  */
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1]; // Bearer TOKEN
 
@@ -23,7 +23,51 @@ function authenticateToken(req, res, next) {
   }
 
   req.user = decoded;
-  next();
+  if (!decoded.sid && ["tenant", "staff"].includes(decoded.type)) {
+    try {
+      const sessions = require("../services/activeSession.service");
+      const session = await sessions.registerLegacySession({
+        token,
+        decodedToken: decoded,
+        req,
+      });
+      if (!session || session.revoked_at || (session.expires_at && new Date(session.expires_at) <= new Date())) {
+        return res.status(401).json({
+          success: false,
+          message: "Session has ended. Please sign in again.",
+        });
+      }
+      decoded.sid = session.session_id;
+    } catch (error) {
+      console.error("Legacy session registration failed:", error.message);
+      return res.status(503).json({
+        success: false,
+        message: "Unable to register this session right now.",
+      });
+    }
+  }
+  if (decoded.sid) {
+    try {
+      const sessions = require("../services/activeSession.service");
+      const active = await sessions.isSessionActive(decoded.sid);
+      if (!active) {
+        return res.status(401).json({
+          success: false,
+          message: "Session has ended. Please sign in again.",
+        });
+      }
+      sessions.touchActiveSession(decoded.sid).catch((error) => {
+        console.error("Session activity update failed:", error.message);
+      });
+    } catch (error) {
+      console.error("Session validation failed:", error.message);
+      return res.status(503).json({
+        success: false,
+        message: "Unable to validate this session right now.",
+      });
+    }
+  }
+  return next();
 }
 
 /**

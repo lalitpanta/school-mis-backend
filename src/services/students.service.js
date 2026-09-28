@@ -512,8 +512,10 @@ class StudentsService {
           message: `Created student ${createdStudent?.full_name || data?.full_name || "record"}.`,
           severity: "success",
           metadata: {
-            studentType: createdStudent?.student_type || data?.student_type || null,
-            admissionNo: createdStudent?.admission_no || data?.admission_no || null,
+            studentType:
+              createdStudent?.student_type || data?.student_type || null,
+            admissionNo:
+              createdStudent?.admission_no || data?.admission_no || null,
           },
         });
       } catch (auditErr) {
@@ -612,7 +614,9 @@ class StudentsService {
                 ? JSON.stringify(data[key])
                 : data[key],
             );
-          } else if (["roll_no", "classroom_id", "class_id", "section_id"].includes(key)) {
+          } else if (
+            ["roll_no", "classroom_id", "class_id", "section_id"].includes(key)
+          ) {
             // Convert integer fields
             const val = data[key];
             if (val === null || val === undefined || val === "") {
@@ -643,7 +647,12 @@ class StudentsService {
             fields.push(`${key} = $${idx++}`);
             values.push(data[key]);
           } else if (
-            ["date_of_birth", "admission_date", "meal_eligibility_date", "measurement_date"].includes(key)
+            [
+              "date_of_birth",
+              "admission_date",
+              "meal_eligibility_date",
+              "measurement_date",
+            ].includes(key)
           ) {
             fields.push(`${key} = $${idx++}`);
             values.push(data[key] || null);
@@ -672,7 +681,8 @@ class StudentsService {
           severity: "info",
           metadata: {
             changedFields: Object.keys(data || {}),
-            studentType: updatedStudent?.student_type || data?.student_type || null,
+            studentType:
+              updatedStudent?.student_type || data?.student_type || null,
           },
         });
       } catch (auditErr) {
@@ -689,7 +699,10 @@ class StudentsService {
     try {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensureTable(pool);
-      const existing = await pool.query("SELECT id, full_name FROM students WHERE id = $1", [id]);
+      const existing = await pool.query(
+        "SELECT id, full_name FROM students WHERE id = $1",
+        [id],
+      );
       const q = `DELETE FROM students WHERE id = $1 RETURNING id`;
       const res = await pool.query(q, [id]);
 

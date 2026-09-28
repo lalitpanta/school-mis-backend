@@ -96,12 +96,19 @@ async function recordEntityAudit({
   const actor = req?.user || {};
   const tenantId = req?.tenantId || actor.tenantId || null;
   const tenantName = req?.tenantName || actor.tenantName || null;
-  const category =
-    ["student", "teacher", "employee", "class", "section", "room", "course"].includes(entityType)
-      ? "academic"
-      : ["user", "role"].includes(entityType)
-        ? "user_roles"
-        : "system_config";
+  const category = [
+    "student",
+    "teacher",
+    "employee",
+    "class",
+    "section",
+    "room",
+    "course",
+  ].includes(entityType)
+    ? "academic"
+    : ["user", "role"].includes(entityType)
+      ? "user_roles"
+      : "system_config";
 
   return recordAuditEvent({
     category,
