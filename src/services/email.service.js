@@ -1,6 +1,28 @@
 const nodemailer = require("nodemailer");
 const settingsService = require("./settings.service");
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderSubject(template, variables = {}) {
+  return String(template || "").replace(/{{\s*([\w.-]+)\s*}}/g, (_, key) => {
+    const value = variables[key];
+    return value === null || value === undefined ? "" : String(value);
+  });
+}
+
+function renderHtml(template, variables = {}) {
+  return String(template || "").replace(/{{\s*([\w.-]+)\s*}}/g, (_, key) =>
+    escapeHtml(variables[key]),
+  );
+}
+
 class EmailService {
   /**
    * Retrieves the current email configuration from settings
@@ -24,7 +46,7 @@ class EmailService {
    * @param {String} eventType - The type of event (e.g., 'student_created', 'user_created')
    * @param {Object} payload - Data to populate the template (e.g., { studentName: 'John', email: 'john@example.com' })
    */
-  async sendEmailForEvent(req, eventType, payload) {
+  async sendEmailForEvent(req, eventType, payload = {}) {
     try {
       const config = await this.getConfig(req);
       // Check if email integration is configured and enabled for this event
@@ -47,21 +69,10 @@ class EmailService {
       }
 
       // Compile template
-      let subject = template.subject;
-      let htmlBody = template.body;
+      const subject = renderSubject(template.subject, payload);
+      const htmlBody = renderHtml(template.body, payload);
 
-      // Simple string interpolation for variables e.g. {{studentName}}
-      for (const [key, value] of Object.entries(payload)) {
-        const regex = new RegExp(`{{${key}}}`, 'g');
-        subject = subject.replace(regex, value || '');
-        htmlBody = htmlBody.replace(regex, value || '');
-      }
-
-      // Determine recipient: for user_created, prefer admin_email from config
-      let to = payload.to;
-      if (eventType === 'user_created' && config.admin_email) {
-        to = config.admin_email;
-      }
+      const to = payload.to || (eventType === 'user_created' ? config.admin_email : null);
 
       if (!to) {
         console.warn(`Skipping email for ${eventType}: no recipient found.`);

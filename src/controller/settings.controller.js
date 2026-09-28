@@ -101,17 +101,36 @@ class SettingsController {
     try {
       const { to, eventType } = req.body || {};
       const emailService = require("../services/email.service");
+      const samplePayloads = {
+        student_created: {
+          studentName: "Test Student",
+          admissionNo: "T-0001",
+          schoolName: "Your School",
+        },
+        user_created: {
+          name: "Test User",
+          username: to || "test@example.com",
+          password: "temporary-password",
+        },
+        fee_payment_success: {
+          studentName: "Test Student",
+          amount: "1,250.00",
+          receiptNo: "TEST-0001",
+        },
+        exam_results_published: {
+          studentName: "Test Student",
+          examName: "Mid-term examination",
+        },
+        attendance_alert: {
+          studentName: "Test Student",
+          date: new Date().toLocaleDateString(),
+        },
+      };
+      const payload = { to: to || null, ...(samplePayloads[eventType] || {}) };
 
-      // Prepare a small payload depending on eventType
-      const payload = { to: to || null };
       if (eventType === "student_created") {
-        payload.studentName = "Test Student";
-        payload.admissionNo = "T-0001";
-        payload.schoolName = "Test School";
-      } else {
-        payload.name = "Test User";
-        payload.username = to || "test@example.com";
-        payload.password = "password123";
+        const schoolProfile = await settingsService.getSchoolProfile(req);
+        payload.schoolName = schoolProfile?.name || "Your School";
       }
 
       const sent = await emailService.sendEmailForEvent(
@@ -122,7 +141,7 @@ class SettingsController {
       if (!sent)
         return res
           .status(500)
-          .json({ message: "Failed to send test email (see server logs)." });
+          .json({ message: "Could not send test email. Check email configuration and event notification settings." });
       return res.status(200).json({
         message:
           "Test email triggered (check recipient inbox and server logs).",
