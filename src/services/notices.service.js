@@ -2,14 +2,22 @@ const settingsService = require('./settings.service');
 const emailService = require('./email.service');
 
 const DEFAULT_SMS_CONFIG = {
+  provider: 'megaweblink',
+  endpoint: 'https://sms.megaweblink.com.np/api/v1/sms/send/',
   enabled: false,
-  gateway: 'sparrow',
   api_key: '',
-  sender_id: '',
-  provider_name: 'Sparrow SMS',
+  api_key_configured: false,
+  sender_id: {
+    NT: '',
+    Ncell: '',
+  },
+  provider_name: 'Mega Web Link SMS',
+  message_type: 'plain',
+  scheduling_enabled: false,
+  scheduled_at: '',
+  signature: '',
   country: 'NP',
   credits: 0,
-  signature: '',
 };
 
 class NoticesService {
@@ -131,13 +139,42 @@ class NoticesService {
 
   async getSmsConfig(req) {
     const config = await this._loadSetting('sms_config', req, null);
-    return config || { ...DEFAULT_SMS_CONFIG };
+    const nextConfig = { ...DEFAULT_SMS_CONFIG, ...(config || {}) };
+    return {
+      ...nextConfig,
+      sender_id: {
+        NT: nextConfig.sender_id?.NT || '',
+        Ncell: nextConfig.sender_id?.Ncell || '',
+      },
+      api_key: nextConfig.api_key ? '••••••••••••••••' : '',
+      api_key_configured: Boolean(nextConfig.api_key || process.env.SMS_API_KEY),
+    };
   }
 
   async saveSmsConfig(req, config) {
-    const nextConfig = { ...DEFAULT_SMS_CONFIG, ...config };
+    const nextConfig = {
+      ...DEFAULT_SMS_CONFIG,
+      ...(config || {}),
+      sender_id: {
+        NT: config?.sender_id?.NT || config?.sender_id || '',
+        Ncell: config?.sender_id?.Ncell || '',
+      },
+      provider: 'megaweblink',
+      endpoint: 'https://sms.megaweblink.com.np/api/v1/sms/send/',
+      message_type: config?.message_type || 'plain',
+      provider_name: 'Mega Web Link SMS',
+      api_key_configured: Boolean(config?.api_key || process.env.SMS_API_KEY),
+    };
+
+    if (config?.api_key) {
+      process.env.SMS_API_KEY = config.api_key;
+      nextConfig.api_key = '';
+    } else if (!process.env.SMS_API_KEY) {
+      nextConfig.api_key = '';
+    }
+
     const result = await this._saveSetting('sms_config', nextConfig, req);
-    return JSON.parse(result.value);
+    return this.getSmsConfig(req, result);
   }
 
   async getSmsTemplates(req) {
@@ -207,54 +244,116 @@ class NoticesService {
 
   async sendSms(req, payload) {
     const config = await this.getSmsConfig(req);
-    const phoneList = String(payload.recipientPhones || '')
-      .split(/[,\n;]/)
-      .map((value) => value.trim())
-      .filter(Boolean);
-    const message = String(payload.message || '').trim();
-    const templateName = payload.templateName || null;
-    const scheduledAt = payload.scheduledAt || null;
-    const recipientType = payload.recipientType || 'manual';
+    const toNumbers = Array.isArray(payload.to)
+      ? payload.to
+      : String(payload.recipientPhones || payload.to || '')
+          .split(/[\n,;]+/)
+          .map((value) => value.trim())
+          .filter(Boolean);
 
-    if (!message) {
+    const text = String(payload.text || payload.message || '').trim();
+    const templateName = payload.templateName || null;
+    const recipientType = payload.recipientType || 'manual';
+    const scheduledAt = payload.scheduledAt || payload.scheduled_at || config.scheduled_at || null;
+    const senderId = payload.sender_id || config.sender_id || {};
+    const messageType = payload.message_type || config.message_type || 'plain';
+
+    if (!text) {
       throw new Error('SMS message cannot be empty.');
     }
-    if (recipientType === 'manual' && phoneList.length === 0) {
+    if (toNumbers.length === 0) {
       throw new Error('Please provide at least one recipient phone number.');
     }
 
-    const status = scheduledAt && new Date(scheduledAt) > new Date() ? 'scheduled' : 'sent';
-    const providerResponse = config.enabled
-      ? `queued on ${config.gateway || 'unknown'} gateway` 
-      : 'SMS gateway disabled';
+    const endpoint = payload.endpoint || config.endpoint || 'https://sms.megaweblink.com.np/api/v1/sms/send/';
+    const apiKey = process.env.SMS_API_KEY;
+
+    if (!config.enabled || !apiKey) {
+      throw new Error('SMS API key is not configured. Please configure your SMS provider first.');
+    }
+
+    const providerPayload = {
+      to: toNumbers,
+      text,
+      sender_id: senderId,
+      message_type: messageType,
+    };
+
+    if (config.scheduling_enabled || scheduledAt) {
+      const finalScheduledDate = scheduledAt ? this._formatScheduledDate(scheduledAt) : this._formatScheduledDate(config.scheduled_at);
+      if (!finalScheduledDate) {
+        throw new Error('The scheduled date/time is invalid. Please use a valid future date and time.');
+      }
+      providerPayload.scheduled_at = finalScheduledDate;
+    }
+
+    let response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-KEY': apiKey,
+        },
+        body: JSON.stringify(providerPayload),
+      });
+    } catch (error) {
+      throw new Error('The SMS service is temporarily unavailable. Please try again later or contact support.');
+    }
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const message = String(data?.error || data?.message || '').toLowerCase();
+      if (message.includes('insufficient balance')) {
+        throw new Error('SMS could not be sent because the SMS account has insufficient balance.');
+      }
+      if (message.includes('invalid api key') || message.includes('unauthorized') || response.status === 401) {
+        throw new Error('The SMS API key is invalid or inactive. Please check your SMS configuration.');
+      }
+      if (message.includes('date') || message.includes('schedule') || message.includes('time') || response.status === 400) {
+        throw new Error('The scheduled date/time is invalid. Please use a valid future date and time.');
+      }
+      throw new Error('The SMS service is temporarily unavailable. Please try again later or contact support.');
+    }
 
     const logs = [];
-    const toTargets = phoneList.length > 0 ? phoneList : [payload.recipientPlaceholder || 'unknown'];
-    for (const to of toTargets) {
+    for (const to of toNumbers) {
       const logEntry = await this.saveSmsLog(req, {
         to,
-        message,
+        message: text,
         templateName,
         recipientType,
-        scheduledAt,
-        status: config.enabled ? status : 'failed',
-        providerResponse: config.enabled ? providerResponse : 'disabled',
+        scheduledAt: providerPayload.scheduled_at || null,
+        status: response.ok ? 'sent' : 'failed',
+        providerResponse: data?.message || 'SMS sent',
       });
       logs.push(logEntry);
     }
 
-    if (config.enabled && config.credits != null) {
-      const remaining = Number(config.credits) - toTargets.length;
-      config.credits = remaining >= 0 ? remaining : 0;
-      await this.saveSmsConfig(req, config);
-    }
-
     return {
-      sent: config.enabled,
-      status,
+      sent: true,
+      batch_id: data.batch_id || data.id || null,
+      cost: data.cost || null,
+      pages: data.pages || null,
+      failed_numbers: data.failed_numbers || [],
+      status: 'sent',
       logs,
-      gateway: config.gateway,
+      provider: 'megaweblink',
+      response: data,
     };
+  }
+
+  _formatScheduledDate(value) {
+    if (!value) return null;
+    if (typeof value === 'string' && /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+      const formatted = new Date(value);
+      if (Number.isNaN(formatted.getTime())) return null;
+      return formatted.toISOString().slice(0, 19).replace('T', ' ');
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 19).replace('T', ' ');
   }
 }
 
