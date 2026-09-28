@@ -82,6 +82,50 @@ async function recordAuditEvent(payload = {}) {
   }
 }
 
+async function recordEntityAudit({
+  req,
+  entityType,
+  entityId,
+  entityName,
+  action,
+  title,
+  message,
+  severity = "info",
+  metadata = {},
+} = {}) {
+  const actor = req?.user || {};
+  const tenantId = req?.tenantId || actor.tenantId || null;
+  const tenantName = req?.tenantName || actor.tenantName || null;
+  const category =
+    ["student", "teacher", "employee", "class", "section", "room", "course"].includes(entityType)
+      ? "academic"
+      : ["user", "role"].includes(entityType)
+        ? "user_roles"
+        : "system_config";
+
+  return recordAuditEvent({
+    category,
+    action: action || "updated",
+    title: title || `${entityType || "Record"} ${action || "updated"}`,
+    message:
+      message ||
+      `${title || `${entityType || "Record"} ${action || "updated"}`} ${entityName ? `for ${entityName}` : ""}`.trim(),
+    severity,
+    userEmail: actor.email || actor.userEmail || null,
+    userType: actor.type || actor.userType || null,
+    tenantId,
+    tenantName,
+    ipAddress: req?.ip || null,
+    device: req?.headers?.["user-agent"] || null,
+    metadata: {
+      entityType: entityType || null,
+      entityId: entityId ?? null,
+      entityName: entityName || null,
+      ...metadata,
+    },
+  });
+}
+
 async function getAuditLogs({
   limit = 100,
   offset = 0,
@@ -244,6 +288,7 @@ module.exports = {
   ensureAuditLogTable,
   seedDefaultAuditLogs,
   recordAuditEvent,
+  recordEntityAudit,
   getAuditLogs,
   getAuditStats,
 };

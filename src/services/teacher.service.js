@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require("uuid");
+const { recordEntityAudit } = require("./auditLog.service");
 
 class TeacherService {
   ensureTable = async (pool) => {
@@ -322,7 +323,27 @@ class TeacherService {
         "documents count:",
         result.rows[0]?.documents?.length || 0,
       );
-      return result.rows[0];
+      const createdTeacher = result.rows[0];
+
+      try {
+        await recordEntityAudit({
+          req,
+          entityType: "teacher",
+          entityId: createdTeacher?.id ?? null,
+          entityName: createdTeacher?.full_name || data?.full_name || "Teacher",
+          action: "create",
+          title: "Teacher created",
+          message: `Created teacher ${createdTeacher?.full_name || data?.full_name || "record"}.`,
+          severity: "success",
+          metadata: {
+            employeeId: createdTeacher?.employee_id || data?.employee_id || null,
+          },
+        });
+      } catch (auditErr) {
+        console.error("Teacher audit log failed:", auditErr.message);
+      }
+
+      return createdTeacher;
     } catch (err) {
       throw new Error(`Failed to create teacher: ${err.message}`);
     }
@@ -436,7 +457,29 @@ class TeacherService {
         "documents count:",
         result.rows[0]?.documents?.length || 0,
       );
-      return result.rows[0] || null;
+      const updatedTeacher = result.rows[0] || null;
+
+      if (updatedTeacher) {
+        try {
+          await recordEntityAudit({
+            req,
+            entityType: "teacher",
+            entityId: id,
+            entityName: updatedTeacher.full_name || data?.full_name || "Teacher",
+            action: "update",
+            title: "Teacher updated",
+            message: `Updated teacher ${updatedTeacher.full_name || data?.full_name || "record"}.`,
+            severity: "info",
+            metadata: {
+              changedFields: Object.keys(data || {}),
+            },
+          });
+        } catch (auditErr) {
+          console.error("Teacher audit log failed:", auditErr.message);
+        }
+      }
+
+      return updatedTeacher;
     } catch (err) {
       throw new Error(`Failed to update teacher ${id}: ${err.message}`);
     }
@@ -446,8 +489,30 @@ class TeacherService {
     try {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensureTable(pool);
+      const existingTeacher = await pool.query("SELECT id, full_name FROM teachers WHERE id = $1", [id]);
       const query = `DELETE FROM teachers WHERE id = $1 RETURNING id`;
       const result = await pool.query(query, [id]);
+
+      if (result.rows[0]) {
+        try {
+          await recordEntityAudit({
+            req,
+            entityType: "teacher",
+            entityId: id,
+            entityName: existingTeacher.rows[0]?.full_name || "Teacher",
+            action: "delete",
+            title: "Teacher deleted",
+            message: `Deleted teacher ${existingTeacher.rows[0]?.full_name || "record"}.`,
+            severity: "warning",
+            metadata: {
+              deletedId: id,
+            },
+          });
+        } catch (auditErr) {
+          console.error("Teacher audit log failed:", auditErr.message);
+        }
+      }
+
       return result.rows[0] || null;
     } catch (err) {
       throw new Error(`Failed to delete teacher ${id}: ${err.message}`);

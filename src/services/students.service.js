@@ -499,7 +499,28 @@ class StudentsService {
 
       const q = `INSERT INTO students (${columnNames}) VALUES (${placeholders}) RETURNING *`;
       const res = await pool.query(q, vals);
-      return res.rows[0];
+      const createdStudent = res.rows[0];
+
+      try {
+        await recordEntityAudit({
+          req,
+          entityType: "student",
+          entityId: createdStudent?.id ?? null,
+          entityName: createdStudent?.full_name || data?.full_name || "Student",
+          action: "create",
+          title: "Student created",
+          message: `Created student ${createdStudent?.full_name || data?.full_name || "record"}.`,
+          severity: "success",
+          metadata: {
+            studentType: createdStudent?.student_type || data?.student_type || null,
+            admissionNo: createdStudent?.admission_no || data?.admission_no || null,
+          },
+        });
+      } catch (auditErr) {
+        console.error("Student audit log failed:", auditErr.message);
+      }
+
+      return createdStudent;
     } catch (err) {
       throw new Error(`Failed to create student: ${err.message}`);
     }
@@ -637,7 +658,28 @@ class StudentsService {
       const q = `UPDATE students SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP WHERE id = $${idx} RETURNING *`;
       values.push(id);
       const res = await pool.query(q, values);
-      return res.rows[0];
+      const updatedStudent = res.rows[0];
+
+      try {
+        await recordEntityAudit({
+          req,
+          entityType: "student",
+          entityId: id,
+          entityName: updatedStudent?.full_name || data?.full_name || "Student",
+          action: "update",
+          title: "Student updated",
+          message: `Updated student ${updatedStudent?.full_name || data?.full_name || "record"}.`,
+          severity: "info",
+          metadata: {
+            changedFields: Object.keys(data || {}),
+            studentType: updatedStudent?.student_type || data?.student_type || null,
+          },
+        });
+      } catch (auditErr) {
+        console.error("Student audit log failed:", auditErr.message);
+      }
+
+      return updatedStudent;
     } catch (err) {
       throw new Error(`Failed to update student ${id}: ${err.message}`);
     }
@@ -647,8 +689,30 @@ class StudentsService {
     try {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensureTable(pool);
+      const existing = await pool.query("SELECT id, full_name FROM students WHERE id = $1", [id]);
       const q = `DELETE FROM students WHERE id = $1 RETURNING id`;
       const res = await pool.query(q, [id]);
+
+      if (res.rows[0]) {
+        try {
+          await recordEntityAudit({
+            req,
+            entityType: "student",
+            entityId: id,
+            entityName: existing.rows[0]?.full_name || "Student",
+            action: "delete",
+            title: "Student deleted",
+            message: `Deleted student ${existing.rows[0]?.full_name || "record"}.`,
+            severity: "warning",
+            metadata: {
+              deletedId: id,
+            },
+          });
+        } catch (auditErr) {
+          console.error("Student audit log failed:", auditErr.message);
+        }
+      }
+
       return res.rows[0] || null;
     } catch (err) {
       throw new Error(`Failed to delete student ${id}: ${err.message}`);

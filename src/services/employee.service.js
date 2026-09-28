@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require("uuid");
+const { recordEntityAudit } = require("./auditLog.service");
 
 class EmployeeService {
   ensureTable = async (pool) => {
@@ -261,7 +262,27 @@ class EmployeeService {
       ];
 
       const result = await pool.query(query, values);
-      return result.rows[0];
+      const createdEmployee = result.rows[0];
+
+      try {
+        await recordEntityAudit({
+          req,
+          entityType: "employee",
+          entityId: createdEmployee?.id ?? null,
+          entityName: createdEmployee?.full_name || data?.full_name || "Employee",
+          action: "create",
+          title: "Employee created",
+          message: `Created employee ${createdEmployee?.full_name || data?.full_name || "record"}.`,
+          severity: "success",
+          metadata: {
+            employeeId: createdEmployee?.employee_id || data?.employee_id || null,
+          },
+        });
+      } catch (auditErr) {
+        console.error("Employee audit log failed:", auditErr.message);
+      }
+
+      return createdEmployee;
     } catch (err) {
       throw new Error(`Failed to create employee: ${err.message}`);
     }
@@ -350,7 +371,29 @@ class EmployeeService {
 
       const query = `UPDATE employees SET ${updates.join(", ")} WHERE id = $${idx} RETURNING *`;
       const result = await pool.query(query, values);
-      return result.rows[0] || null;
+      const updatedEmployee = result.rows[0] || null;
+
+      if (updatedEmployee) {
+        try {
+          await recordEntityAudit({
+            req,
+            entityType: "employee",
+            entityId: id,
+            entityName: updatedEmployee.full_name || data?.full_name || "Employee",
+            action: "update",
+            title: "Employee updated",
+            message: `Updated employee ${updatedEmployee.full_name || data?.full_name || "record"}.`,
+            severity: "info",
+            metadata: {
+              changedFields: Object.keys(data || {}),
+            },
+          });
+        } catch (auditErr) {
+          console.error("Employee audit log failed:", auditErr.message);
+        }
+      }
+
+      return updatedEmployee;
     } catch (err) {
       throw new Error(`Failed to update employee: ${err.message}`);
     }
@@ -359,8 +402,30 @@ class EmployeeService {
   deleteEmployee = async (id, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      const existingEmployee = await pool.query("SELECT id, full_name FROM employees WHERE id = $1", [id]);
       const query = `DELETE FROM employees WHERE id = $1 RETURNING *`;
       const result = await pool.query(query, [id]);
+
+      if (result.rows[0]) {
+        try {
+          await recordEntityAudit({
+            req,
+            entityType: "employee",
+            entityId: id,
+            entityName: existingEmployee.rows[0]?.full_name || "Employee",
+            action: "delete",
+            title: "Employee deleted",
+            message: `Deleted employee ${existingEmployee.rows[0]?.full_name || "record"}.`,
+            severity: "warning",
+            metadata: {
+              deletedId: id,
+            },
+          });
+        } catch (auditErr) {
+          console.error("Employee audit log failed:", auditErr.message);
+        }
+      }
+
       return result.rows[0] || null;
     } catch (err) {
       throw new Error(`Failed to delete employee: ${err.message}`);

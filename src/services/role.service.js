@@ -1,4 +1,5 @@
 const { getTenantPool } = require("../config/tenantDb");
+const { recordEntityAudit } = require("./auditLog.service");
 
 class RoleService {
   /**
@@ -21,7 +22,27 @@ class RoleService {
         false,
         JSON.stringify(permissions),
       ]);
-      return result.rows[0];
+      const createdRole = result.rows[0];
+
+      try {
+        await recordEntityAudit({
+          req,
+          entityType: "role",
+          entityId: createdRole?.id ?? null,
+          entityName: createdRole?.role_name || roleData?.role_name || "Role",
+          action: "create",
+          title: "Role created",
+          message: `Created role ${createdRole?.role_name || roleData?.role_name || "record"}.`,
+          severity: "success",
+          metadata: {
+            permissions: permissions,
+          },
+        });
+      } catch (auditErr) {
+        console.error("Role audit log failed:", auditErr.message);
+      }
+
+      return createdRole;
     } catch (err) {
       throw new Error(`Failed to create role: ${err.message}`);
     }
@@ -98,7 +119,29 @@ class RoleService {
         permissions !== undefined ? JSON.stringify(permissions) : null,
         roleId,
       ]);
-      return result.rows[0] || null;
+      const updatedRole = result.rows[0] || null;
+
+      if (updatedRole) {
+        try {
+          await recordEntityAudit({
+            req,
+            entityType: "role",
+            entityId: roleId,
+            entityName: updatedRole.role_name || updateData?.role_name || "Role",
+            action: "update",
+            title: "Role updated",
+            message: `Updated role ${updatedRole.role_name || updateData?.role_name || "record"}.`,
+            severity: "info",
+            metadata: {
+              changedFields: Object.keys(updateData || {}),
+            },
+          });
+        } catch (auditErr) {
+          console.error("Role audit log failed:", auditErr.message);
+        }
+      }
+
+      return updatedRole;
     } catch (err) {
       throw new Error(`Failed to update role: ${err.message}`);
     }
@@ -110,8 +153,30 @@ class RoleService {
   deleteRole = async (roleId, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      const existingRole = await pool.query("SELECT id, role_name FROM roles WHERE id = $1", [roleId]);
       const query = `DELETE FROM roles WHERE id = $1 AND is_system = false RETURNING *`;
       const result = await pool.query(query, [roleId]);
+
+      if (result.rows[0]) {
+        try {
+          await recordEntityAudit({
+            req,
+            entityType: "role",
+            entityId: roleId,
+            entityName: existingRole.rows[0]?.role_name || "Role",
+            action: "delete",
+            title: "Role deleted",
+            message: `Deleted role ${existingRole.rows[0]?.role_name || "record"}.`,
+            severity: "warning",
+            metadata: {
+              deletedId: roleId,
+            },
+          });
+        } catch (auditErr) {
+          console.error("Role audit log failed:", auditErr.message);
+        }
+      }
+
       return result.rows[0] || null;
     } catch (err) {
       throw new Error(`Failed to delete role: ${err.message}`);
