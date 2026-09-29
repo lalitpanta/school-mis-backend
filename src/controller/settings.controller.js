@@ -106,6 +106,8 @@ class SettingsController {
           studentName: "Test Student",
           admissionNo: "T-0001",
           schoolName: "Your School",
+          loginEmail: to || "test@example.com",
+          password: "temporary-password",
         },
         user_created: {
           name: "Test User",

@@ -76,24 +76,6 @@ class StudentsController {
       }
       const created = await studentsService.create(payload, req);
 
-      // Trigger email notification for new student
-      if (created && created.student_mail) {
-        const emailService = require("../services/email.service");
-        const settingsService = require("../services/settings.service");
-        // Do not await to avoid blocking the response
-        settingsService
-          .getSchoolProfile(req)
-          .then((schoolProfile) =>
-            emailService.sendEmailForEvent(req, "student_created", {
-              to: created.student_mail,
-              studentName: created.full_name || "Student",
-              admissionNo: created.admission_no || "N/A",
-              schoolName: schoolProfile?.name || "Our School",
-            }),
-          )
-          .catch((err) => console.error("Email error:", err));
-      }
-
       // Trigger WhatsApp notification for new student
       if (created) {
         const whatsappService = require("../services/whatsapp.service");

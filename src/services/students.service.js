@@ -1,4 +1,5 @@
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const { v4: uuidv4 } = require("uuid");
 const { getTenantPool } = require("../config/tenantDb");
 
@@ -227,10 +228,7 @@ class StudentsService {
 
     if (!studentEmail) return null;
 
-    const seed = String(student.admission_no || student.id || "student")
-      .replace(/[^a-zA-Z0-9]/g, "")
-      .slice(0, 12);
-    const temporaryPassword = `Student@${seed || "Portal"}`;
+    const temporaryPassword = crypto.randomBytes(18).toString("hex");
     const passwordHash = await bcrypt.hash(temporaryPassword, 10);
 
     const existing = await pool.query(
@@ -245,17 +243,15 @@ class StudentsService {
           "UPDATE tenant_users SET email = $1, name = $2, phone = $3, is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $4;",
           [studentEmail, student.full_name || current.name, student.phone_no || current.phone, current.id],
         );
-        if (!current.password_hash || current.password_hash === "") {
-          await pool.query(
-            "UPDATE tenant_users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;",
-            [passwordHash, current.id],
-          );
-        }
-        return { ...current, email: studentEmail };
+        return {
+          account: { ...current, email: studentEmail },
+          created: false,
+          temporaryPassword: null,
+        };
       }
 
       if (String(current.email || "").toLowerCase() === studentEmail) {
-        return current;
+        throw new Error("This email is already used by another account.");
       }
     }
 
@@ -280,7 +276,11 @@ class StudentsService {
       ],
     );
 
-    return result.rows[0];
+    return {
+      account: result.rows[0],
+      created: true,
+      temporaryPassword,
+    };
   };
   list = async (req) => {
     try {
@@ -325,26 +325,22 @@ class StudentsService {
           const sectionIds = [
             ...new Set(rows.map((r) => r.section_id).filter(Boolean)),
           ];
+          const classRes = await pool.query(
+            `SELECT id, COALESCE(class_name, name) AS class_name FROM classes WHERE id = ANY($1::int[])`,
+            [classIds],
+          );
+          const sectionRes = await pool.query(
+            `SELECT id, COALESCE(section_name, name) AS section_name FROM sections WHERE id = ANY($1::int[])`,
+            [sectionIds],
+          );
           const classMap = {};
           const sectionMap = {};
-          if (classIds.length) {
-            const cres = await pool.query(
-              `SELECT id, COALESCE(class_name, name) AS class_name FROM classes WHERE id = ANY($1::int[])`,
-              [classIds],
-            );
-            cres.rows.forEach((r) => {
-              classMap[r.id] = r.class_name;
-            });
-          }
-          if (sectionIds.length) {
-            const sres = await pool.query(
-              `SELECT id, COALESCE(section_name, name) AS section_name FROM sections WHERE id = ANY($1::int[])`,
-              [sectionIds],
-            );
-            sres.rows.forEach((r) => {
-              sectionMap[r.id] = r.section_name;
-            });
-          }
+          classRes.rows.forEach((r) => {
+            classMap[r.id] = r.class_name;
+          });
+          sectionRes.rows.forEach((r) => {
+            sectionMap[r.id] = r.section_name;
+          });
           return rows.map((r) => ({
             ...r,
             class_name: classMap[r.class_id] || null,
@@ -570,25 +566,55 @@ class StudentsService {
       const res = await pool.query(q, vals);
       const createdStudent = res.rows[0];
 
+      const provideLoginCredentials =
+        data.provide_login_credentials === true ||
+        data.provide_login_credentials === "true";
+      const loginEmail = String(
+        createdStudent.student_mail || createdStudent.school_email || "",
+      )
+        .trim()
+        .toLowerCase();
+      createdStudent.portal_login = {
+        requested: provideLoginCredentials,
+        email: loginEmail || null,
+        status: provideLoginCredentials ? "pending" : "not_requested",
+        email_sent: false,
+      };
+
       try {
-        const loginAccount = await this.syncStudentLoginAccount(pool, createdStudent);
-        if (loginAccount && createdStudent.student_mail) {
-          const settingsService = require("./settings.service");
-          const emailService = require("./email.service");
-          const schoolProfile = await settingsService.getSchoolProfile(req).catch(() => ({}));
-          const temporaryPassword = `Student@${String(createdStudent.admission_no || createdStudent.id || "student").replace(/[^a-zA-Z0-9]/g, "") || "Portal"}`;
-          try {
-            await emailService.sendEmailForEvent(req, "student_created", {
-              to: createdStudent.student_mail,
+        if (provideLoginCredentials && loginEmail) {
+          const loginResult = await this.syncStudentLoginAccount(
+            pool,
+            createdStudent,
+          );
+          if (!loginResult.created) {
+            createdStudent.portal_login.status = "existing_account";
+          } else {
+            const settingsService = require("./settings.service");
+            const emailService = require("./email.service");
+            const schoolProfile = await settingsService
+              .getSchoolProfile(req)
+              .catch(() => ({}));
+            const emailSent = await emailService.sendEmailForEvent(req, "student_created", {
+              to: loginEmail,
               studentName: createdStudent.full_name || "Student",
               admissionNo: createdStudent.admission_no || "N/A",
               schoolName: schoolProfile?.name || "Our School",
-              loginEmail: createdStudent.student_mail,
-              password: temporaryPassword,
+              loginEmail,
+              password: loginResult.temporaryPassword,
             });
-          } catch (emailErr) {
-            console.warn("Student portal email notification failed:", emailErr.message);
+            createdStudent.portal_login.status = emailSent
+              ? "created"
+              : "email_not_sent";
+            createdStudent.portal_login.email_sent = emailSent;
+            if (!emailSent) {
+              console.warn(
+                `Student portal account created, but credentials email was not sent to ${loginEmail}. Check email integration and student_created notification settings.`,
+              );
+            }
           }
+        } else if (provideLoginCredentials) {
+          createdStudent.portal_login.status = "missing_email";
         }
 
         await recordEntityAudit({
@@ -608,7 +634,12 @@ class StudentsService {
           },
         });
       } catch (auditErr) {
-        console.error("Student audit log failed:", auditErr.message);
+        if (createdStudent.portal_login.status === "pending") {
+          createdStudent.portal_login.status = "account_error";
+          console.error("Student portal login setup failed:", auditErr.message);
+        } else {
+          console.error("Student audit log failed:", auditErr.message);
+        }
       }
 
       return createdStudent;

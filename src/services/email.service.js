@@ -73,7 +73,18 @@ class EmailService {
 
       // Compile template
       const subject = renderSubject(template.subject, payload);
-      const htmlBody = renderHtml(template.body, payload);
+      let htmlBody = renderHtml(template.body, payload);
+
+      const templateHasLoginEmail = /{{\s*loginEmail\s*}}/.test(template.body);
+      const templateHasPassword = /{{\s*password\s*}}/.test(template.body);
+      if (
+        eventType === "student_created" &&
+        payload.loginEmail &&
+        payload.password &&
+        (!templateHasLoginEmail || !templateHasPassword)
+      ) {
+        htmlBody += `<hr/><h3>Student Portal Login</h3>${templateHasLoginEmail ? "" : `<p><strong>Login email:</strong> ${escapeHtml(payload.loginEmail)}</p>`}${templateHasPassword ? "" : `<p><strong>Temporary password:</strong> ${escapeHtml(payload.password)}</p>`}<p>Please change your password after signing in.</p>`;
+      }
 
       const to =
         payload.to ||
