@@ -23,6 +23,32 @@ function renderHtml(template, variables = {}) {
   );
 }
 
+function safeHeader(value) {
+  return String(value ?? "").replace(/[\r\n]+/g, " ").trim();
+}
+
+function createGmailRawMessage({ from, senderName, to, subject, html }) {
+  const safeSenderName = safeHeader(senderName).replace(/["\\]/g, "\\$&");
+  const safeFrom = safeHeader(from);
+  const safeTo = safeHeader(to);
+  const encodedSubject = `=?UTF-8?B?${Buffer.from(safeHeader(subject), "utf8").toString("base64")}?=`;
+  const encodedHtml = Buffer.from(String(html || ""), "utf8")
+    .toString("base64")
+    .replace(/.{1,76}/g, "$&\r\n");
+  const message = [
+    `From: "${safeSenderName || "EduSphere MIS"}" <${safeFrom}>`,
+    `To: ${safeTo}`,
+    `Subject: ${encodedSubject}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    encodedHtml,
+  ].join("\r\n");
+
+  return Buffer.from(message, "utf8").toString("base64url");
+}
+
 class EmailService {
   /**
    * Retrieves the current email configuration from settings
@@ -69,6 +95,69 @@ class EmailService {
     });
   }
 
+  async sendWithGmailApi(config, to, subject, html) {
+    const { gmail_client_id, gmail_client_secret, gmail_refresh_token } =
+      config || {};
+    if (!gmail_client_id || !gmail_client_secret || !gmail_refresh_token) {
+      throw new Error(
+        "Gmail API requires an OAuth client ID, client secret, and refresh token.",
+      );
+    }
+    if (!config.email_address) {
+      throw new Error("Enter the Gmail address used for OAuth authorization.");
+    }
+
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: gmail_client_id,
+        client_secret: gmail_client_secret,
+        refresh_token: gmail_refresh_token,
+        grant_type: "refresh_token",
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const tokenResult = await tokenResponse.json().catch(() => ({}));
+    if (!tokenResponse.ok || !tokenResult.access_token) {
+      const reason =
+        tokenResult.error_description ||
+        tokenResult.error ||
+        `HTTP ${tokenResponse.status}`;
+      throw new Error(`Gmail OAuth token request failed: ${reason}`);
+    }
+
+    const raw = createGmailRawMessage({
+      from: config.email_address,
+      senderName: config.sender_name,
+      to,
+      subject,
+      html,
+    });
+    const sendResponse = await fetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenResult.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ raw }),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    const sendResult = await sendResponse.json().catch(() => ({}));
+    if (!sendResponse.ok) {
+      const reason =
+        sendResult.error?.message ||
+        sendResult.error_description ||
+        `HTTP ${sendResponse.status}`;
+      throw new Error(`Gmail API send failed: ${reason}`);
+    }
+
+    return sendResult;
+  }
+
   async sendTestEmail(req, to, draftConfig) {
     if (!/^\S+@\S+\.\S+$/.test(String(to || "").trim())) {
       throw new Error("Enter a valid recipient email address.");
@@ -79,6 +168,19 @@ class EmailService {
       throw new Error(
         "Email settings were not found. Enter SMTP settings first.",
       );
+    }
+
+    if (config.email_provider === "gmail_api") {
+      const result = await this.sendWithGmailApi(
+        config,
+        String(to).trim(),
+        "Gmail API configuration test",
+        "<p>Your Gmail API configuration is working.</p><p>This is a test email from EduSphere MIS.</p>",
+      );
+      return {
+        messageId: result.id,
+        integrationEnabled: config.enabled === true,
+      };
     }
 
     const transporter = this.createTransporter(config);
@@ -173,8 +275,16 @@ class EmailService {
    */
   async sendEmail(req, to, subject, html) {
     const config = await this.getConfig(req);
-    if (!config || !config.email_address || !config.app_password) {
+    if (!config || !config.email_address) {
       throw new Error("Email configuration is missing or incomplete.");
+    }
+
+    if (config.email_provider === "gmail_api") {
+      return this.sendWithGmailApi(config, to, subject, html);
+    }
+
+    if (!config.app_password) {
+      throw new Error("SMTP email configuration is missing its password.");
     }
 
     const transporter = this.createTransporter(config);
