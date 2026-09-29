@@ -14,12 +14,31 @@ class StudentsController {
 
   get = async (req, res, next) => {
     try {
+      if (req.user?.type === "student" && Number(req.params.id) !== Number(req.user.studentId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
       const student = await studentsService.get(req.params.id, req);
       if (!student)
         return res.status(404).json({ message: "Student not found" });
       return res
         .status(200)
         .json({ message: "Student retrieved", data: student });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getCurrentStudent = async (req, res, next) => {
+    try {
+      if (!req.user || req.user.type !== "student") {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const student = await studentsService.get(req.user.studentId, req);
+      if (!student)
+        return res.status(404).json({ message: "Student not found" });
+      return res
+        .status(200)
+        .json({ message: "Student profile retrieved", data: student });
     } catch (err) {
       next(err);
     }

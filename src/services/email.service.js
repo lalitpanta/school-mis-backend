@@ -36,7 +36,10 @@ class EmailService {
    * Retrieves the current email templates from settings
    */
   async getTemplates(req) {
-    const templates = await settingsService.getSettingByKey("email_templates", req);
+    const templates = await settingsService.getSettingByKey(
+      "email_templates",
+      req,
+    );
     return templates || {};
   }
 
@@ -53,7 +56,7 @@ class EmailService {
       if (!config || !config.enabled) {
         return false;
       }
-      
+
       const notifications = config.notifications || {};
       if (!notifications[eventType]) {
         // Notification for this event is disabled
@@ -62,7 +65,7 @@ class EmailService {
 
       const templates = await this.getTemplates(req);
       const template = templates[eventType];
-      
+
       if (!template || !template.subject || !template.body) {
         console.warn(`No email template configured for event: ${eventType}`);
         return false;
@@ -72,7 +75,9 @@ class EmailService {
       const subject = renderSubject(template.subject, payload);
       const htmlBody = renderHtml(template.body, payload);
 
-      const to = payload.to || (eventType === 'user_created' ? config.admin_email : null);
+      const to =
+        payload.to ||
+        (eventType === "user_created" ? config.admin_email : null);
 
       if (!to) {
         console.warn(`Skipping email for ${eventType}: no recipient found.`);
@@ -98,7 +103,7 @@ class EmailService {
     }
 
     // Default to Gmail or common SMTP settings if not explicitly provided
-    const host = config.smtp_host || 'smtp.gmail.com';
+    const host = config.smtp_host || "smtp.gmail.com";
     const port = config.smtp_port || 465;
     const secure = config.smtp_secure !== undefined ? config.smtp_secure : true;
 
@@ -113,7 +118,7 @@ class EmailService {
     });
 
     const mailOptions = {
-      from: `"${config.sender_name || 'EduSphere MIS'}" <${config.email_address}>`,
+      from: `"${config.sender_name || "EduSphere MIS"}" <${config.email_address}>`,
       to,
       subject,
       html,

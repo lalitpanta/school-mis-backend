@@ -112,14 +112,15 @@ const createUser = async (userData, req) => {
     // Handle student linked users
     if (student_id) {
       const studentResult = await pool.query(
-        "SELECT full_name, email, phone FROM students WHERE id = $1",
+        "SELECT full_name, student_mail, school_email, phone_no FROM students WHERE id = $1",
         [student_id],
       );
       if (studentResult.rows.length > 0) {
         const student = studentResult.rows[0];
         if (!computedName) computedName = student.full_name;
-        if (!computedEmail) computedEmail = student.email;
-        if (!computedPhone) computedPhone = student.phone;
+        if (!computedEmail)
+          computedEmail = student.student_mail || student.school_email;
+        if (!computedPhone) computedPhone = student.phone_no;
       }
     }
 

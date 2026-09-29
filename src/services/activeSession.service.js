@@ -136,7 +136,12 @@ async function listTenantSessions(tenantId) {
   return result.rows;
 }
 
-async function revokeTenantSession({ tenantId, sessionId, currentSessionId, req }) {
+async function revokeTenantSession({
+  tenantId,
+  sessionId,
+  currentSessionId,
+  req,
+}) {
   await ensureActiveSessionsTable();
   const result = await centralPool.query(
     `UPDATE ${SESSION_TABLE}

@@ -907,6 +907,108 @@ async function permanentlyDeleteTenant(tenantId, actor = {}) {
 }
 
 /**
+ * Student Login
+ * Authenticates a linked student account within a tenant
+ */
+async function studentLogin(tenantSlug, email, password, req) {
+  const client = await centralPool.connect();
+
+  try {
+    const normalizedSlug = slugify(tenantSlug);
+    if (!validateSlug(normalizedSlug)) {
+      throw new Error("Invalid tenant name or slug");
+    }
+
+    const tenantResult = await client.query(
+      "SELECT * FROM tenant WHERE slug = $1 AND is_active = TRUE;",
+      [normalizedSlug],
+    );
+
+    if (tenantResult.rows.length === 0) {
+      throw new Error("Invalid email or password");
+    }
+
+    const tenant = tenantResult.rows[0];
+    const tenantPool = getTenantPool(tenant.id, tenant.database_name);
+    const tenantDbClient = await tenantPool.connect();
+
+    try {
+      const normalizedEmail = String(email || "").trim().toLowerCase();
+      const userResult = await tenantDbClient.query(
+        "SELECT * FROM tenant_users WHERE email = $1 AND student_id IS NOT NULL AND is_active = TRUE LIMIT 1;",
+        [normalizedEmail],
+      );
+
+      if (userResult.rows.length === 0) {
+        throw new Error("Invalid email or password");
+      }
+
+      const user = userResult.rows[0];
+      const isPasswordValid = await comparePassword(password, user.password_hash);
+
+      if (!isPasswordValid) {
+        throw new Error("Invalid email or password");
+      }
+
+      const studentResult = await tenantDbClient.query(
+        "SELECT id, full_name, student_mail, school_email, admission_no FROM students WHERE id = $1 AND is_active = TRUE LIMIT 1;",
+        [user.student_id],
+      );
+
+      if (studentResult.rows.length === 0) {
+        throw new Error("Student account is unavailable.");
+      }
+
+      const student = studentResult.rows[0];
+      const sessionId = uuidv4();
+      const token = generateToken(
+        {
+          sid: sessionId,
+          id: user.id,
+          email: user.email,
+          name: user.name || student.full_name || normalizedEmail.split("@")[0],
+          tenantId: tenant.id,
+          tenantSlug: tenant.slug,
+          databaseName: tenant.database_name,
+          studentId: student.id,
+          modules: ["dashboard", "student", "results", "fees"],
+          type: "student",
+        },
+        process.env.JWT_EXPIRE_USER || "24h",
+      );
+
+      await activeSessionService.createActiveSession({
+        token,
+        sessionId,
+        user: { id: user.id, email: user.email, type: "student" },
+        tenant,
+        req,
+      });
+
+      return {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name || student.full_name || normalizedEmail.split("@")[0],
+          studentId: student.id,
+          studentName: student.full_name,
+          modules: ["dashboard", "student", "results", "fees"],
+          tenantSlug: tenant.slug,
+          tenantId: tenant.id,
+          databaseName: tenant.database_name,
+          type: "student",
+        },
+      };
+    } finally {
+      tenantDbClient.release();
+    }
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Staff/User Login
  * Authenticates a staff member or user within a tenant
  */
@@ -1177,7 +1279,7 @@ async function unifiedLogin(email, password, tenantSlug = null, req) {
     }
   }
 
-  // If tenantSlug provided, try tenant login first, then staff login
+  // If tenantSlug provided, try tenant login first, then staff login, then student login
   if (tenantSlug) {
     try {
       const result = await tenantLogin(tenantSlug, email, password, req);
@@ -1187,7 +1289,7 @@ async function unifiedLogin(email, password, tenantSlug = null, req) {
         userType: "tenant",
       };
     } catch (e) {
-      // Not a tenant, try staff login
+      // Not a tenant, continue
     }
 
     try {
@@ -1196,6 +1298,17 @@ async function unifiedLogin(email, password, tenantSlug = null, req) {
         success: true,
         data: result,
         userType: "staff",
+      };
+    } catch (e) {
+      // Not a staff user, continue
+    }
+
+    try {
+      const result = await studentLogin(tenantSlug, email, password, req);
+      return {
+        success: true,
+        data: result,
+        userType: "student",
       };
     } catch (e) {
       throw new Error("Invalid email or password");
@@ -1271,13 +1384,24 @@ async function findPasswordResetAccount(email, tenantSlug = "") {
         );
 
         if (userResult.rows.length > 0) {
+          const accountUser = userResult.rows[0];
+          if (accountUser.student_id) {
+            return {
+              userType: "student",
+              tenant,
+              tenantId: tenant.id,
+              tenantSlug: tenant.slug,
+              databaseName: tenant.database_name,
+              user: accountUser,
+            };
+          }
           return {
             userType: "staff",
             tenant,
             tenantId: tenant.id,
             tenantSlug: tenant.slug,
             databaseName: tenant.database_name,
-            user: userResult.rows[0],
+            user: accountUser,
           };
         }
       } finally {

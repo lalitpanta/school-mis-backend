@@ -214,7 +214,7 @@ masterRouter.use(
 masterRouter.use(
   "/students",
   authenticateToken,
-  requireTenant,
+  requireTenantUser,
   attachTenantContext,
   require("./v1/students.routing"),
 );

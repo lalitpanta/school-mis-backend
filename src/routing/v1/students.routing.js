@@ -4,6 +4,7 @@ const studentsCTRL = require("../../controller/students.controller");
 const { studentUpload } = require("../../middleware/studentUpload");
 
 router.get("/", studentsCTRL.list);
+router.get("/me", studentsCTRL.getCurrentStudent);
 router.get("/export", studentsCTRL.exportCsv);
 router.get("/:id", studentsCTRL.get);
 // accept profile picture and multiple document files

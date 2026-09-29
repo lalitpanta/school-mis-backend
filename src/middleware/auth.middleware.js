@@ -31,7 +31,11 @@ async function authenticateToken(req, res, next) {
         decodedToken: decoded,
         req,
       });
-      if (!session || session.revoked_at || (session.expires_at && new Date(session.expires_at) <= new Date())) {
+      if (
+        !session ||
+        session.revoked_at ||
+        (session.expires_at && new Date(session.expires_at) <= new Date())
+      ) {
         return res.status(401).json({
           success: false,
           message: "Session has ended. Please sign in again.",
@@ -98,7 +102,7 @@ function requireTenant(req, res, next) {
 
 function requireTenantUser(req, res, next) {
   if (
-    !["tenant", "staff", "system_admin"].includes(req.user.type) ||
+    !["tenant", "staff", "student", "system_admin"].includes(req.user.type) ||
     !req.tenantPool
   ) {
     return res
@@ -179,6 +183,11 @@ async function attachTenantContext(req, res, next) {
       if (req.user.type === "staff") req.tenantId = req.user.tenantId;
       req.tenantDatabaseName = req.user.databaseName;
       req.tenantPool = getTenantPool(req.tenantId, req.user.databaseName);
+    } else if (req.user.type === "student") {
+      req.tenantId = req.user.tenantId;
+      req.tenantDatabaseName = req.user.databaseName;
+      req.tenantPool = getTenantPool(req.user.tenantId, req.user.databaseName);
+      req.studentId = req.user.studentId;
     } else if (req.user.type === "system_admin") {
       // For admin, check X-Tenant-ID header if accessing tenant-specific endpoints
       const tenantIdFromHeader = req.headers["x-tenant-id"];

@@ -1,3 +1,5 @@
+const bcrypt = require("bcrypt");
+const { v4: uuidv4 } = require("uuid");
 const { getTenantPool } = require("../config/tenantDb");
 
 class StudentsService {
@@ -212,6 +214,73 @@ class StudentsService {
         ADD COLUMN IF NOT EXISTS guardian_email VARCHAR(100),
         ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb;
     `);
+  };
+
+  syncStudentLoginAccount = async (pool, student) => {
+    if (!student || !student.id) return null;
+
+    const studentEmail = String(
+      student.student_mail || student.school_email || "",
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!studentEmail) return null;
+
+    const seed = String(student.admission_no || student.id || "student")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .slice(0, 12);
+    const temporaryPassword = `Student@${seed || "Portal"}`;
+    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+
+    const existing = await pool.query(
+      "SELECT * FROM tenant_users WHERE student_id = $1 OR email = $2 LIMIT 1;",
+      [student.id, studentEmail],
+    );
+
+    if (existing.rows.length > 0) {
+      const current = existing.rows[0];
+      if (current.student_id && Number(current.student_id) === Number(student.id)) {
+        await pool.query(
+          "UPDATE tenant_users SET email = $1, name = $2, phone = $3, is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $4;",
+          [studentEmail, student.full_name || current.name, student.phone_no || current.phone, current.id],
+        );
+        if (!current.password_hash || current.password_hash === "") {
+          await pool.query(
+            "UPDATE tenant_users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2;",
+            [passwordHash, current.id],
+          );
+        }
+        return { ...current, email: studentEmail };
+      }
+
+      if (String(current.email || "").toLowerCase() === studentEmail) {
+        return current;
+      }
+    }
+
+    const result = await pool.query(
+      `INSERT INTO tenant_users (id, email, password_hash, name, phone, department_store, authority_mode, module_access, teacher_id, student_id, employee_id, section_id, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       RETURNING *;`,
+      [
+        uuidv4(),
+        studentEmail,
+        passwordHash,
+        student.full_name || "Student",
+        student.phone_no || null,
+        null,
+        "role_access",
+        JSON.stringify(["dashboard", "student", "results", "fees"]),
+        null,
+        student.id,
+        null,
+        student.section_id || null,
+        true,
+      ],
+    );
+
+    return result.rows[0];
   };
   list = async (req) => {
     try {
@@ -502,6 +571,26 @@ class StudentsService {
       const createdStudent = res.rows[0];
 
       try {
+        const loginAccount = await this.syncStudentLoginAccount(pool, createdStudent);
+        if (loginAccount && createdStudent.student_mail) {
+          const settingsService = require("./settings.service");
+          const emailService = require("./email.service");
+          const schoolProfile = await settingsService.getSchoolProfile(req).catch(() => ({}));
+          const temporaryPassword = `Student@${String(createdStudent.admission_no || createdStudent.id || "student").replace(/[^a-zA-Z0-9]/g, "") || "Portal"}`;
+          try {
+            await emailService.sendEmailForEvent(req, "student_created", {
+              to: createdStudent.student_mail,
+              studentName: createdStudent.full_name || "Student",
+              admissionNo: createdStudent.admission_no || "N/A",
+              schoolName: schoolProfile?.name || "Our School",
+              loginEmail: createdStudent.student_mail,
+              password: temporaryPassword,
+            });
+          } catch (emailErr) {
+            console.warn("Student portal email notification failed:", emailErr.message);
+          }
+        }
+
         await recordEntityAudit({
           req,
           entityType: "student",
@@ -670,6 +759,7 @@ class StudentsService {
       const updatedStudent = res.rows[0];
 
       try {
+        await this.syncStudentLoginAccount(pool, updatedStudent);
         await recordEntityAudit({
           req,
           entityType: "student",

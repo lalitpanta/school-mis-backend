@@ -141,7 +141,10 @@ class SettingsController {
       if (!sent)
         return res
           .status(500)
-          .json({ message: "Could not send test email. Check email configuration and event notification settings." });
+          .json({
+            message:
+              "Could not send test email. Check email configuration and event notification settings.",
+          });
       return res.status(200).json({
         message:
           "Test email triggered (check recipient inbox and server logs).",
