@@ -99,60 +99,17 @@ class SettingsController {
    */
   sendTestEmail = async (req, res, next) => {
     try {
-      const { to, eventType } = req.body || {};
+      const { to, config } = req.body || {};
       const emailService = require("../services/email.service");
-      const samplePayloads = {
-        student_created: {
-          studentName: "Test Student",
-          admissionNo: "T-0001",
-          schoolName: "Your School",
-          loginEmail: to || "test@example.com",
-          password: "temporary-password",
-        },
-        user_created: {
-          name: "Test User",
-          username: to || "test@example.com",
-          password: "temporary-password",
-        },
-        fee_payment_success: {
-          studentName: "Test Student",
-          amount: "1,250.00",
-          receiptNo: "TEST-0001",
-        },
-        exam_results_published: {
-          studentName: "Test Student",
-          examName: "Mid-term examination",
-        },
-        attendance_alert: {
-          studentName: "Test Student",
-          date: new Date().toLocaleDateString(),
-        },
-      };
-      const payload = { to: to || null, ...(samplePayloads[eventType] || {}) };
-
-      if (eventType === "student_created") {
-        const schoolProfile = await settingsService.getSchoolProfile(req);
-        payload.schoolName = schoolProfile?.name || "Your School";
-      }
-
-      const sent = await emailService.sendEmailForEvent(
-        req,
-        eventType || "user_created",
-        payload,
-      );
-      if (!sent)
-        return res
-          .status(500)
-          .json({
-            message:
-              "Could not send test email. Check email configuration and event notification settings.",
-          });
+      const result = await emailService.sendTestEmail(req, to, config);
       return res.status(200).json({
-        message:
-          "Test email triggered (check recipient inbox and server logs).",
+        message: result.integrationEnabled
+          ? "SMTP verified and test email sent. Check the recipient inbox."
+          : "SMTP verified and test email sent, but email notifications remain disabled until you enable and save the integration.",
+        data: result,
       });
     } catch (err) {
-      next(err);
+      return res.status(400).json({ message: err.message || "SMTP test failed." });
     }
   };
 

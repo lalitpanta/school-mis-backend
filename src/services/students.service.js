@@ -636,6 +636,7 @@ class StudentsService {
       } catch (auditErr) {
         if (createdStudent.portal_login.status === "pending") {
           createdStudent.portal_login.status = "account_error";
+          createdStudent.portal_login.error = auditErr.message;
           console.error("Student portal login setup failed:", auditErr.message);
         } else {
           console.error("Student audit log failed:", auditErr.message);

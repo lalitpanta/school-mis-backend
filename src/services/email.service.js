@@ -43,6 +43,67 @@ class EmailService {
     return templates || {};
   }
 
+  createTransporter(config) {
+    if (!config?.email_address || !config?.app_password) {
+      throw new Error("Enter the sender email address and app password.");
+    }
+
+    const host = config.smtp_host || "smtp.gmail.com";
+    const port = Number(config.smtp_port || 465);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error("Enter a valid SMTP host and port.");
+    }
+
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure: config.smtp_secure !== undefined ? config.smtp_secure : port === 465,
+      auth: {
+        user: config.email_address,
+        pass: config.app_password,
+      },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 20000,
+    });
+  }
+
+  async sendTestEmail(req, to, draftConfig) {
+    if (!/^\S+@\S+\.\S+$/.test(String(to || "").trim())) {
+      throw new Error("Enter a valid recipient email address.");
+    }
+
+    const config = draftConfig || (await this.getConfig(req));
+    if (!config) {
+      throw new Error("Email settings were not found. Enter SMTP settings first.");
+    }
+
+    const transporter = this.createTransporter(config);
+    try {
+      await transporter.verify();
+      const result = await transporter.sendMail({
+        from: `"${config.sender_name || "EduSphere MIS"}" <${config.email_address}>`,
+        to: String(to).trim(),
+        subject: "SMTP configuration test",
+        text: "Your SMTP settings are working. This is a test email from EduSphere MIS.",
+        html: "<p>Your SMTP settings are working.</p><p>This is a test email from EduSphere MIS.</p>",
+      });
+      return {
+        messageId: result.messageId,
+        integrationEnabled: config.enabled === true,
+      };
+    } catch (error) {
+      const details = error?.responseCode
+        ? `${error.responseCode}: ${error.message}`
+        : error?.code
+          ? `${error.code}: ${error.message}`
+          : error?.message || "Unknown SMTP error";
+      throw new Error(`SMTP test failed. ${details}`);
+    } finally {
+      transporter.close();
+    }
+  }
+
   /**
    * Sends an email based on an event type
    * @param {Object} req - The request object (to extract tenantPool context)
@@ -113,20 +174,7 @@ class EmailService {
       throw new Error("Email configuration is missing or incomplete.");
     }
 
-    // Default to Gmail or common SMTP settings if not explicitly provided
-    const host = config.smtp_host || "smtp.gmail.com";
-    const port = config.smtp_port || 465;
-    const secure = config.smtp_secure !== undefined ? config.smtp_secure : true;
-
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: {
-        user: config.email_address,
-        pass: config.app_password,
-      },
-    });
+    const transporter = this.createTransporter(config);
 
     const mailOptions = {
       from: `"${config.sender_name || "EduSphere MIS"}" <${config.email_address}>`,
@@ -135,7 +183,11 @@ class EmailService {
       html,
     };
 
-    return transporter.sendMail(mailOptions);
+    try {
+      return await transporter.sendMail(mailOptions);
+    } finally {
+      transporter.close();
+    }
   }
 }
 
