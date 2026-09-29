@@ -109,7 +109,9 @@ class SettingsController {
         data: result,
       });
     } catch (err) {
-      return res.status(400).json({ message: err.message || "SMTP test failed." });
+      return res
+        .status(400)
+        .json({ message: err.message || "SMTP test failed." });
     }
   };
 

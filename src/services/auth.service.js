@@ -933,7 +933,9 @@ async function studentLogin(tenantSlug, email, password, req) {
     const tenantDbClient = await tenantPool.connect();
 
     try {
-      const normalizedEmail = String(email || "").trim().toLowerCase();
+      const normalizedEmail = String(email || "")
+        .trim()
+        .toLowerCase();
       const userResult = await tenantDbClient.query(
         "SELECT * FROM tenant_users WHERE email = $1 AND student_id IS NOT NULL AND is_active = TRUE LIMIT 1;",
         [normalizedEmail],
@@ -944,7 +946,10 @@ async function studentLogin(tenantSlug, email, password, req) {
       }
 
       const user = userResult.rows[0];
-      const isPasswordValid = await comparePassword(password, user.password_hash);
+      const isPasswordValid = await comparePassword(
+        password,
+        user.password_hash,
+      );
 
       if (!isPasswordValid) {
         throw new Error("Invalid email or password");

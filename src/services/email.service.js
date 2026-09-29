@@ -57,7 +57,8 @@ class EmailService {
     return nodemailer.createTransport({
       host,
       port,
-      secure: config.smtp_secure !== undefined ? config.smtp_secure : port === 465,
+      secure:
+        config.smtp_secure !== undefined ? config.smtp_secure : port === 465,
       auth: {
         user: config.email_address,
         pass: config.app_password,
@@ -75,7 +76,9 @@ class EmailService {
 
     const config = draftConfig || (await this.getConfig(req));
     if (!config) {
-      throw new Error("Email settings were not found. Enter SMTP settings first.");
+      throw new Error(
+        "Email settings were not found. Enter SMTP settings first.",
+      );
     }
 
     const transporter = this.createTransporter(config);

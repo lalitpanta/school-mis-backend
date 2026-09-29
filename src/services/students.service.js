@@ -238,10 +238,18 @@ class StudentsService {
 
     if (existing.rows.length > 0) {
       const current = existing.rows[0];
-      if (current.student_id && Number(current.student_id) === Number(student.id)) {
+      if (
+        current.student_id &&
+        Number(current.student_id) === Number(student.id)
+      ) {
         await pool.query(
           "UPDATE tenant_users SET email = $1, name = $2, phone = $3, is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $4;",
-          [studentEmail, student.full_name || current.name, student.phone_no || current.phone, current.id],
+          [
+            studentEmail,
+            student.full_name || current.name,
+            student.phone_no || current.phone,
+            current.id,
+          ],
         );
         return {
           account: { ...current, email: studentEmail },
@@ -595,14 +603,18 @@ class StudentsService {
             const schoolProfile = await settingsService
               .getSchoolProfile(req)
               .catch(() => ({}));
-            const emailSent = await emailService.sendEmailForEvent(req, "student_created", {
-              to: loginEmail,
-              studentName: createdStudent.full_name || "Student",
-              admissionNo: createdStudent.admission_no || "N/A",
-              schoolName: schoolProfile?.name || "Our School",
-              loginEmail,
-              password: loginResult.temporaryPassword,
-            });
+            const emailSent = await emailService.sendEmailForEvent(
+              req,
+              "student_created",
+              {
+                to: loginEmail,
+                studentName: createdStudent.full_name || "Student",
+                admissionNo: createdStudent.admission_no || "N/A",
+                schoolName: schoolProfile?.name || "Our School",
+                loginEmail,
+                password: loginResult.temporaryPassword,
+              },
+            );
             createdStudent.portal_login.status = emailSent
               ? "created"
               : "email_not_sent";
