@@ -43,6 +43,10 @@ async function patchAllTenantSchemas() {
         try {
           // Add missing tables to existing tenants
           await tenantClient.query(`
+            ALTER TABLE tenant_users
+              ADD COLUMN IF NOT EXISTS student_record_id INTEGER,
+              ADD COLUMN IF NOT EXISTS section_record_id INTEGER;
+
             CREATE TABLE IF NOT EXISTS rooms (
               id SERIAL PRIMARY KEY,
               room_number VARCHAR(50) NOT NULL,

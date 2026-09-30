@@ -231,16 +231,20 @@ class StudentsService {
     const temporaryPassword = crypto.randomBytes(18).toString("hex");
     const passwordHash = await bcrypt.hash(temporaryPassword, 10);
 
+    await pool.query(
+      "ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS student_record_id INTEGER, ADD COLUMN IF NOT EXISTS section_record_id INTEGER;",
+    );
+
     const existing = await pool.query(
-      "SELECT * FROM tenant_users WHERE student_id = $1 OR email = $2 LIMIT 1;",
+      "SELECT * FROM tenant_users WHERE student_record_id = $1 OR email = $2 LIMIT 1;",
       [student.id, studentEmail],
     );
 
     if (existing.rows.length > 0) {
       const current = existing.rows[0];
       if (
-        current.student_id &&
-        Number(current.student_id) === Number(student.id)
+        current.student_record_id &&
+        Number(current.student_record_id) === Number(student.id)
       ) {
         await pool.query(
           "UPDATE tenant_users SET email = $1, name = $2, phone = $3, is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $4;",
@@ -264,7 +268,7 @@ class StudentsService {
     }
 
     const result = await pool.query(
-      `INSERT INTO tenant_users (id, email, password_hash, name, phone, department_store, authority_mode, module_access, teacher_id, student_id, employee_id, section_id, is_active, created_at, updated_at)
+      `INSERT INTO tenant_users (id, email, password_hash, name, phone, department_store, authority_mode, module_access, teacher_id, student_record_id, employee_id, section_record_id, is_active, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        RETURNING *;`,
       [

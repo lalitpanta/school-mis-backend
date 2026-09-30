@@ -937,7 +937,7 @@ async function studentLogin(tenantSlug, email, password, req) {
         .trim()
         .toLowerCase();
       const userResult = await tenantDbClient.query(
-        "SELECT * FROM tenant_users WHERE email = $1 AND student_id IS NOT NULL AND is_active = TRUE LIMIT 1;",
+        "SELECT * FROM tenant_users WHERE email = $1 AND student_record_id IS NOT NULL AND is_active = TRUE LIMIT 1;",
         [normalizedEmail],
       );
 
@@ -957,7 +957,7 @@ async function studentLogin(tenantSlug, email, password, req) {
 
       const studentResult = await tenantDbClient.query(
         "SELECT id, full_name, student_mail, school_email, admission_no FROM students WHERE id = $1 AND is_active = TRUE LIMIT 1;",
-        [user.student_id],
+        [user.student_record_id],
       );
 
       if (studentResult.rows.length === 0) {
@@ -1390,7 +1390,7 @@ async function findPasswordResetAccount(email, tenantSlug = "") {
 
         if (userResult.rows.length > 0) {
           const accountUser = userResult.rows[0];
-          if (accountUser.student_id) {
+          if (accountUser.student_record_id) {
             return {
               userType: "student",
               tenant,

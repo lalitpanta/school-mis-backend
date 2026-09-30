@@ -102,7 +102,11 @@ class SettingsController {
         // try to parse stored value for response
         try {
           const parsedValue = JSON.parse(updated.value);
-          if (key === "email_config" && parsedValue && typeof parsedValue === "object") {
+          if (
+            key === "email_config" &&
+            parsedValue &&
+            typeof parsedValue === "object"
+          ) {
             results[key] = {
               ...parsedValue,
               app_password: "",
@@ -172,7 +176,8 @@ class SettingsController {
       const { to, config } = req.body || {};
       const emailService = require("../services/email.service");
       const result = await emailService.sendTestEmail(req, to, config);
-      const providerName = result.provider === "gmail_api" ? "Gmail API" : "SMTP";
+      const providerName =
+        result.provider === "gmail_api" ? "Gmail API" : "SMTP";
       return res.status(200).json({
         message: result.integrationEnabled
           ? `${providerName} test email sent. Check the recipient inbox.`
@@ -194,7 +199,11 @@ class SettingsController {
         });
       }
       const config = await settingsService.getSettingByKey("email_config", req);
-      if (!config?.email_address || !config.gmail_client_id || !config.gmail_client_secret) {
+      if (
+        !config?.email_address ||
+        !config.gmail_client_id ||
+        !config.gmail_client_secret
+      ) {
         return res.status(400).json({
           message:
             "Save the Gmail sender address, OAuth Client ID, and Client Secret first.",
@@ -300,7 +309,8 @@ class SettingsController {
         throw new Error("Google did not return the authorized Gmail address.");
       }
 
-      const refreshToken = tokenResult.refresh_token || config.gmail_refresh_token;
+      const refreshToken =
+        tokenResult.refresh_token || config.gmail_refresh_token;
       if (!refreshToken) {
         throw new Error(
           "Google did not issue a refresh token. Retry authorization and approve access.",
@@ -327,7 +337,9 @@ class SettingsController {
       if (statePayload?.purpose === "gmail_oauth") {
         return res.redirect(`${getIntegrationsUrl()}&gmail_error=oauth_failed`);
       }
-      return res.status(400).send("Gmail authorization failed. Return to Settings and try again.");
+      return res
+        .status(400)
+        .send("Gmail authorization failed. Return to Settings and try again.");
     }
   };
 

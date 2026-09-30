@@ -71,6 +71,12 @@ const createUser = async (userData, req) => {
     } = userData;
     const pool = req?.tenantPool || require("../config/db");
 
+    if (student_id || section_id) {
+      await pool.query(
+        "ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS student_record_id INTEGER, ADD COLUMN IF NOT EXISTS section_record_id INTEGER;",
+      );
+    }
+
     if (!email && !teacher_id && !student_id && !employee_id) {
       throw new Error(
         "Email or linked entity (teacher/student/employee) must be provided",
@@ -162,9 +168,9 @@ const createUser = async (userData, req) => {
 
     // Create user
     const query = `
-      INSERT INTO tenant_users (id, email, password_hash, name, phone, department_store, authority_mode, module_access, teacher_id, student_id, employee_id, section_id, is_active, created_at, updated_at)
+      INSERT INTO tenant_users (id, email, password_hash, name, phone, department_store, authority_mode, module_access, teacher_id, student_record_id, employee_id, section_record_id, is_active, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      RETURNING id, email, name, phone, department_store, authority_mode, module_access, teacher_id, student_id, employee_id, section_id, is_active, created_at, updated_at
+      RETURNING id, email, name, phone, department_store, authority_mode, module_access, teacher_id, student_record_id AS student_id, employee_id, section_record_id AS section_id, is_active, created_at, updated_at
     `;
 
     const result = await pool.query(query, [
@@ -223,9 +229,9 @@ const getAllUsers = async (req) => {
         u.authority_mode,
         u.module_access,
         u.teacher_id,
-        u.student_id,
+        u.student_record_id AS student_id,
         u.employee_id,
-        u.section_id,
+        u.section_record_id AS section_id,
         json_build_object(
           'id', t.id,
           'employee_id', t.employee_id,
@@ -290,9 +296,9 @@ const getUserById = async (userId, req) => {
         u.authority_mode,
         u.module_access,
         u.teacher_id,
-        u.student_id,
+        u.student_record_id AS student_id,
         u.employee_id,
-        u.section_id,
+        u.section_record_id AS section_id,
         json_build_object(
           'id', t.id,
           'employee_id', t.employee_id,
@@ -387,7 +393,10 @@ const updateUser = async (userId, userData, req) => {
     }
 
     if (student_id !== undefined) {
-      updates.push(`student_id = $${paramCount++}`);
+      await pool.query(
+        "ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS student_record_id INTEGER;",
+      );
+      updates.push(`student_record_id = $${paramCount++}`);
       values.push(student_id || null);
     }
 
@@ -397,7 +406,10 @@ const updateUser = async (userId, userData, req) => {
     }
 
     if (section_id !== undefined) {
-      updates.push(`section_id = $${paramCount++}`);
+      await pool.query(
+        "ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS section_record_id INTEGER;",
+      );
+      updates.push(`section_record_id = $${paramCount++}`);
       values.push(section_id || null);
     }
 
@@ -412,7 +424,7 @@ const updateUser = async (userId, userData, req) => {
       UPDATE tenant_users 
       SET ${updates.join(", ")}
       WHERE id = $${paramCount}
-      RETURNING id, email, name, phone, department_store, authority_mode, module_access, teacher_id, student_id, employee_id, section_id, is_active, created_at, updated_at
+      RETURNING id, email, name, phone, department_store, authority_mode, module_access, teacher_id, student_record_id AS student_id, employee_id, section_record_id AS section_id, is_active, created_at, updated_at
     `;
 
     const existingUser = await pool.query(

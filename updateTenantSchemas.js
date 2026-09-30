@@ -142,6 +142,8 @@ async function updateTenantDatabaseSchema(tenantId, databaseName) {
       ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS authority_mode VARCHAR(50) DEFAULT 'role_access';
       ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS module_access JSON DEFAULT '[]'::json;
       ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS student_id UUID;
+      ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS student_record_id INTEGER;
+      ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS section_record_id INTEGER;
       ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS employee_id UUID;
       ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS section_id UUID;
 
