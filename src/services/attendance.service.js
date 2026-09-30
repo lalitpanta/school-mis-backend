@@ -2,9 +2,9 @@ class AttendanceService {
   async getAttendance(pool, tenantId, { date = null, userType = null } = {}) {
     const targetDate = date || new Date().toISOString().slice(0, 10);
     const params = [tenantId, targetDate];
-    let userQuery = '';
+    let userQuery = "";
 
-    if (userType === 'teacher') {
+    if (userType === "teacher") {
       userQuery = `
         SELECT
           t.id AS user_id,
@@ -26,7 +26,7 @@ class AttendanceService {
         GROUP BY t.id, t.employee_id, t.full_name, t.designation, d.name
         ORDER BY t.full_name ASC
       `;
-    } else if (userType === 'employee') {
+    } else if (userType === "employee") {
       userQuery = `
         SELECT
           emp.id AS user_id,
@@ -98,17 +98,21 @@ class AttendanceService {
     const res = await pool.query(userQuery, params);
     return res.rows.map((row) => ({
       ...row,
-      status: row.status || 'absent',
+      status: row.status || "absent",
       check_in: row.check_in ? row.check_in.toISOString() : null,
       check_out: row.check_out ? row.check_out.toISOString() : null,
     }));
   }
 
-  async getAttendanceHistory(pool, tenantId, { userId = null, userType = null, startDate = null, endDate = null } = {}) {
+  async getAttendanceHistory(
+    pool,
+    tenantId,
+    { userId = null, userType = null, startDate = null, endDate = null } = {},
+  ) {
     const params = [tenantId];
     let idx = 2;
     const filters = [`dar.tenant_id = $1`];
-    let typeFilter = '';
+    let typeFilter = "";
 
     if (startDate) {
       filters.push(`DATE(dar.punch_time) >= $${idx++}`);
@@ -119,14 +123,16 @@ class AttendanceService {
       params.push(endDate);
     }
 
-    if (userType === 'teacher') {
+    if (userType === "teacher") {
       typeFilter = `AND t.id IS NOT NULL`;
-    } else if (userType === 'employee') {
+    } else if (userType === "employee") {
       typeFilter = `AND emp.id IS NOT NULL`;
     }
 
     if (userId) {
-      filters.push(`(e.user_id = $${idx} OR t.id = $${idx} OR emp.id = $${idx})`);
+      filters.push(
+        `(e.user_id = $${idx} OR t.id = $${idx} OR emp.id = $${idx})`,
+      );
       params.push(userId);
       idx++;
     }
@@ -142,14 +148,18 @@ class AttendanceService {
       LEFT JOIN departments d_t ON t.department_id = d_t.id
       LEFT JOIN employees emp ON e.user_id = emp.id
       LEFT JOIN departments d_e ON emp.department_id = d_e.id
-      WHERE ${filters.join(' AND ')} ${typeFilter}
+      WHERE ${filters.join(" AND ")} ${typeFilter}
       ORDER BY dar.punch_time ASC
     `;
 
     const res = await pool.query(sql, params);
     return res.rows.map((row) => ({
       ...row,
-      user_type: row.teacher_id ? 'teacher' : row.employee_id ? 'employee' : 'unknown',
+      user_type: row.teacher_id
+        ? "teacher"
+        : row.employee_id
+          ? "employee"
+          : "unknown",
       name: row.teacher_name || row.employee_name || null,
       designation: row.teacher_designation || row.employee_designation || null,
       department: row.teacher_department || row.employee_department || null,
@@ -159,9 +169,9 @@ class AttendanceService {
   async getSummary(pool, tenantId, { date = null, userType = null } = {}) {
     const targetDate = date || new Date().toISOString().slice(0, 10);
     const params = [tenantId, targetDate];
-    let baseQuery = '';
+    let baseQuery = "";
 
-    if (userType === 'teacher') {
+    if (userType === "teacher") {
       baseQuery = `
         SELECT
           COALESCE(MAX(dar.attendance_status), 'absent') AS status
@@ -171,7 +181,7 @@ class AttendanceService {
         WHERE t.is_active = TRUE
         GROUP BY t.id
       `;
-    } else if (userType === 'employee') {
+    } else if (userType === "employee") {
       baseQuery = `
         SELECT
           COALESCE(MAX(dar.attendance_status), 'absent') AS status
@@ -201,15 +211,18 @@ class AttendanceService {
       `;
     }
 
-    const res = await pool.query(`SELECT status, COUNT(*) as count FROM (${baseQuery}) statuses GROUP BY status`, params);
+    const res = await pool.query(
+      `SELECT status, COUNT(*) as count FROM (${baseQuery}) statuses GROUP BY status`,
+      params,
+    );
 
     const summary = { present: 0, absent: 0, late: 0, total: 0 };
     res.rows.forEach((r) => {
       const count = parseInt(r.count, 10);
       summary.total += count;
-      if (r.status === 'present') summary.present += count;
-      if (r.status === 'absent') summary.absent += count;
-      if (r.status === 'late') summary.late += count;
+      if (r.status === "present") summary.present += count;
+      if (r.status === "absent") summary.absent += count;
+      if (r.status === "late") summary.late += count;
     });
 
     return summary;

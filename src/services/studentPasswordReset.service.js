@@ -83,7 +83,9 @@ async function requestStudentPasswordReset(email, tenantSlug) {
   const normalizedEmail = normalizeEmail(email);
   const tenant = await getActiveTenant(tenantSlug);
   if (!normalizedEmail || !tenant) {
-    return { message: "If the student account exists, a reset link will be emailed." };
+    return {
+      message: "If the student account exists, a reset link will be emailed.",
+    };
   }
 
   const pool = getTenantPool(tenant.id, tenant.database_name);
@@ -99,7 +101,9 @@ async function requestStudentPasswordReset(email, tenantSlug) {
   );
   const account = accountResult.rows[0];
   if (!account) {
-    return { message: "If the student account exists, a reset link will be emailed." };
+    return {
+      message: "If the student account exists, a reset link will be emailed.",
+    };
   }
 
   const link = await createStudentResetLink(
@@ -123,7 +127,9 @@ async function requestStudentPasswordReset(email, tenantSlug) {
     html,
   );
 
-  return { message: "If the student account exists, a reset link will be emailed." };
+  return {
+    message: "If the student account exists, a reset link will be emailed.",
+  };
 }
 
 async function resetStudentPassword(token, tenantSlug, newPassword) {
@@ -137,7 +143,10 @@ async function resetStudentPassword(token, tenantSlug, newPassword) {
 
   const pool = getTenantPool(tenant.id, tenant.database_name);
   await ensureResetSchema(pool);
-  const tokenHash = crypto.createHash("sha256").update(String(token)).digest("hex");
+  const tokenHash = crypto
+    .createHash("sha256")
+    .update(String(token))
+    .digest("hex");
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -177,7 +186,9 @@ async function resetStudentPassword(token, tenantSlug, newPassword) {
     client.release();
   }
 
-  return { message: "Password reset successfully. Sign in with your new password." };
+  return {
+    message: "Password reset successfully. Sign in with your new password.",
+  };
 }
 
 module.exports = {
