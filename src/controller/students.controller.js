@@ -147,6 +147,37 @@ class StudentsController {
     }
   };
 
+  getCurrentStudentExamCalendarDays = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student") {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const { rows } = await req.tenantPool.query(`
+        SELECT cd.id, cd.day_number, cd.day_of_week, dc.day_type,
+               cat.category_name, m.bs_month_index, m.month_name,
+               m.month_start_date_AD, y.year_label_BS, y.year_label
+        FROM calendar_days cd
+        JOIN month_class_data m ON m.id = cd.month_id
+        JOIN "year" y ON y.id = m.year_id
+        LEFT JOIN day_classification dc ON dc.id = cd.day_type_id
+        LEFT JOIN day_category cat ON cat.id = dc.category_id
+        WHERE y.id = (
+          SELECT id FROM "year"
+          ORDER BY is_current DESC, created_at DESC
+          LIMIT 1
+        )
+          AND (
+            LOWER(COALESCE(dc.day_type, '')) LIKE ANY (ARRAY['%exam%', '%test%', '%assessment%'])
+            OR LOWER(COALESCE(cat.category_name, '')) LIKE ANY (ARRAY['%exam%', '%test%', '%assessment%'])
+          )
+        ORDER BY m.bs_month_index ASC, cd.day_number ASC
+      `);
+      return res.status(200).json({ data: rows });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   updateCurrentStudent = async (req, res, next) => {
     try {
       if (!req.user || req.user.type !== "student" || !req.user.studentId) {

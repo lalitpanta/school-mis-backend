@@ -9,6 +9,10 @@ router.get(
   "/me/calendar/months/:monthId/days",
   studentsCTRL.getCurrentStudentCalendarDays,
 );
+router.get(
+  "/me/calendar/exam-days",
+  studentsCTRL.getCurrentStudentExamCalendarDays,
+);
 router.get("/me/courses", studentsCTRL.getCurrentStudentCourses);
 router.get("/me/exams", studentsCTRL.getCurrentStudentExams);
 router.get("/me/leave", studentsCTRL.getCurrentStudentLeaveRequests);
