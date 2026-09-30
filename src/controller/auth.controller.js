@@ -134,9 +134,7 @@ async function studentLoginController(req, res) {
 
 async function requestStudentPasswordResetController(req, res) {
   try {
-    const {
-      requestStudentPasswordReset,
-    } = require("../services/studentPasswordReset.service");
+    const { requestStudentPasswordReset } = require("../services/studentPasswordReset.service");
     const result = await requestStudentPasswordReset(
       req.body?.email,
       req.body?.tenantSlug,
@@ -146,17 +144,14 @@ async function requestStudentPasswordResetController(req, res) {
     console.error("Student password reset request failed:", error.message);
     return res.status(400).json({
       success: false,
-      message:
-        "Unable to send the reset link right now. Please try again later.",
+      message: "Unable to send the reset link right now. Please try again later.",
     });
   }
 }
 
 async function resetStudentPasswordController(req, res) {
   try {
-    const {
-      resetStudentPassword,
-    } = require("../services/studentPasswordReset.service");
+    const { resetStudentPassword } = require("../services/studentPasswordReset.service");
     const result = await resetStudentPassword(
       req.body?.token,
       req.body?.tenantSlug,

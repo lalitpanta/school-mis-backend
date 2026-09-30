@@ -604,9 +604,7 @@ class StudentsService {
           } else {
             const settingsService = require("./settings.service");
             const emailService = require("./email.service");
-            const {
-              createStudentResetLink,
-            } = require("./studentPasswordReset.service");
+            const { createStudentResetLink } = require("./studentPasswordReset.service");
             const tenantId =
               req?.tenantId || req?.user?.tenantId || req?.user?.id;
             const { getTenantById } = require("./auth.service");
