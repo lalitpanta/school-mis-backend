@@ -47,6 +47,56 @@ class StudentsController {
     }
   };
 
+  getCurrentStudentCourses = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student" || !req.user.studentId) {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const student = await studentsService.get(req.user.studentId, req);
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" });
+      }
+      if (!student.classroom_id) {
+        return res.status(200).json({ data: [] });
+      }
+      const resultService = require("../services/result.service");
+      const courses = await resultService.getClassCourses(
+        student.classroom_id,
+        req,
+      );
+      return res.status(200).json({ data: courses });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getCurrentStudentExams = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student" || !req.user.studentId) {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const student = await studentsService.get(req.user.studentId, req);
+      if (!student) {
+        return res.status(404).json({ message: "Student not found" });
+      }
+      if (!student.classroom_id) {
+        return res.status(200).json({ data: [] });
+      }
+      const resultService = require("../services/result.service");
+      const exams = await resultService.getExamFormats(
+        {
+          class_id: student.classroom_id,
+          section_id: student.section_id,
+          publishedOnly: true,
+        },
+        req,
+      );
+      return res.status(200).json({ data: exams });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   updateCurrentStudent = async (req, res, next) => {
     try {
       if (!req.user || req.user.type !== "student" || !req.user.studentId) {
@@ -69,6 +119,10 @@ class StudentsController {
           .filter((field) => Object.hasOwn(req.body || {}, field))
           .map((field) => [field, req.body[field]]),
       );
+      const profilePicture = req.files?.profile_picture_file?.[0];
+      if (profilePicture) {
+        profileUpdates.profile_picture = `/uploads/students/${profilePicture.filename}`;
+      }
       if (!Object.keys(profileUpdates).length) {
         return res.status(400).json({
           message: "Provide at least one editable profile field.",
@@ -86,6 +140,58 @@ class StudentsController {
       return res.status(200).json({
         message: "Student profile updated.",
         data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getCurrentStudentLeaveRequests = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student" || !req.user.id) {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const { rows } = await req.tenantPool.query(
+        `SELECT id, start_date, end_date, leave_type, reason, status, admin_reply, created_at
+         FROM leave_requests
+         WHERE user_id = $1
+         ORDER BY created_at DESC`,
+        [req.user.id],
+      );
+      return res.status(200).json({
+        message: "Student leave requests retrieved",
+        data: rows,
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createCurrentStudentLeaveRequest = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student" || !req.user.id) {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const { start_date, end_date, leave_type, reason } = req.body || {};
+      if (
+        !start_date ||
+        !end_date ||
+        !reason?.trim() ||
+        new Date(end_date) < new Date(start_date)
+      ) {
+        return res.status(400).json({
+          message: "Valid dates and a reason are required",
+        });
+      }
+      const { rows } = await req.tenantPool.query(
+        `INSERT INTO leave_requests (user_id, start_date, end_date, leave_type, reason, status)
+         VALUES ($1, $2, $3, $4, $5, 'pending')
+         RETURNING id, start_date, end_date, leave_type, reason, status, admin_reply, created_at`,
+        [req.user.id, start_date, end_date, leave_type || "Other", reason.trim()],
+      );
+      return res.status(201).json({
+        message: "Leave request submitted",
+        data: rows[0],
       });
     } catch (err) {
       next(err);

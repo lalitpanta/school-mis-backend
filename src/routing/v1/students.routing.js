@@ -4,8 +4,16 @@ const studentsCTRL = require("../../controller/students.controller");
 const { studentUpload } = require("../../middleware/studentUpload");
 
 router.get("/", studentsCTRL.list);
+router.get("/me/courses", studentsCTRL.getCurrentStudentCourses);
+router.get("/me/exams", studentsCTRL.getCurrentStudentExams);
+router.get("/me/leave", studentsCTRL.getCurrentStudentLeaveRequests);
+router.post("/me/leave", studentsCTRL.createCurrentStudentLeaveRequest);
 router.get("/me", studentsCTRL.getCurrentStudent);
-router.patch("/me", studentsCTRL.updateCurrentStudent);
+router.patch(
+  "/me",
+  studentUpload.fields([{ name: "profile_picture_file", maxCount: 1 }]),
+  studentsCTRL.updateCurrentStudent,
+);
 router.get("/export", studentsCTRL.exportCsv);
 router.get("/:id", studentsCTRL.get);
 // accept profile picture and multiple document files

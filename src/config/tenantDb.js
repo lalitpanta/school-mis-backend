@@ -772,11 +772,15 @@ async function initializeTenantDatabase(tenantId, databaseName) {
         start_date DATE NOT NULL,
         end_date DATE NOT NULL,
         reason TEXT NOT NULL,
+        leave_type VARCHAR(50) NOT NULL DEFAULT 'Other',
         status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
         admin_reply TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      ALTER TABLE leave_requests
+        ADD COLUMN IF NOT EXISTS leave_type VARCHAR(50) NOT NULL DEFAULT 'Other';
     `);
 
     // Create stored procedure to set current year

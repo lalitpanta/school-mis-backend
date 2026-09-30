@@ -296,6 +296,9 @@ class ResultService {
         conditions.push(`ef.academic_year_id = $${idx++}`);
         values.push(filters.academic_year_id);
       }
+      if (filters.publishedOnly) {
+        conditions.push("ef.is_published = TRUE");
+      }
 
       const whereClause = conditions.length
         ? `WHERE ${conditions.join(" AND ")}`
@@ -922,8 +925,12 @@ class ResultService {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensure(pool);
 
+      const publishedOnly = req?.user?.type === "student";
       const result = await pool.query(
-        "SELECT * FROM results WHERE student_id = $1 AND classroom_id = $2 ORDER BY subject",
+        `SELECT * FROM results
+         WHERE student_id = $1 AND classroom_id = $2
+         ${publishedOnly ? "AND is_published = TRUE" : ""}
+         ORDER BY subject`,
         [studentId, classroomId],
       );
       return result.rows;
