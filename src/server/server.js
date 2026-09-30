@@ -14,6 +14,7 @@ const routes = require("../routing/index");
 // â”€â”€ CORS Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const allowedOrigins = [
   "https://mis-frontend-g6g3.onrender.com",
+  "https://mis.benchmarkassociates.com.np",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",

@@ -247,8 +247,12 @@ class EmailService {
 
       const templateHasLoginEmail = /{{\s*loginEmail\s*}}/.test(template.body);
       const templateHasPassword = /{{\s*password\s*}}/.test(template.body);
-      const templateHasLoginUrl = /{{\s*studentLoginUrl\s*}}/.test(template.body);
-      const templateHasResetUrl = /{{\s*passwordResetUrl\s*}}/.test(template.body);
+      const templateHasLoginUrl = /{{\s*studentLoginUrl\s*}}/.test(
+        template.body,
+      );
+      const templateHasResetUrl = /{{\s*passwordResetUrl\s*}}/.test(
+        template.body,
+      );
       if (
         eventType === "student_created" &&
         payload.loginEmail &&

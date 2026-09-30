@@ -1,6 +1,19 @@
 const studentsService = require("../services/students.service");
 
 class StudentsController {
+  getDashboard = async (req, res, next) => {
+    try {
+      const dashboardService = require("../services/studentPortal.service");
+      const data = await dashboardService.getDashboard(req);
+      return res.status(200).json({
+        message: "Student dashboard retrieved.",
+        data,
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   list = async (req, res, next) => {
     try {
       const rows = await studentsService.list(req);
@@ -86,6 +99,78 @@ class StudentsController {
       return res.status(200).json({
         message: "Student profile updated.",
         data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  markCurrentStudentNoticeRead = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student") {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const noticesService = require("../services/notices.service");
+      const updated = await noticesService.markNoticeRead(
+        req,
+        req.user.id,
+        req.params.noticeId,
+      );
+      if (!updated) {
+        return res.status(404).json({ message: "Notice not found" });
+      }
+      return res.status(200).json({ message: "Notice marked as read." });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getCurrentStudentLeaveRequests = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student") {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const result = await req.tenantPool.query(
+        `SELECT id, start_date, end_date, reason, status, admin_reply, created_at
+         FROM leave_requests
+         WHERE user_id = $1
+         ORDER BY created_at DESC
+         LIMIT 30`,
+        [req.user.id],
+      );
+      return res.status(200).json({ data: result.rows });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createCurrentStudentLeaveRequest = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student") {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const { start_date, end_date, reason } = req.body || {};
+      if (!start_date || !end_date || !String(reason || "").trim()) {
+        return res.status(400).json({
+          message: "Start date, end date, and reason are required.",
+        });
+      }
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(start_date) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(end_date) ||
+        new Date(start_date) > new Date(end_date)
+      ) {
+        return res.status(400).json({ message: "Leave dates are invalid." });
+      }
+      const result = await req.tenantPool.query(
+        `INSERT INTO leave_requests (user_id, start_date, end_date, reason, status)
+         VALUES ($1, $2, $3, $4, 'pending')
+         RETURNING id, start_date, end_date, reason, status, admin_reply, created_at`,
+        [req.user.id, start_date, end_date, String(reason).trim()],
+      );
+      return res.status(201).json({
+        message: "Leave request submitted for school review.",
+        data: result.rows[0],
       });
     } catch (err) {
       next(err);
