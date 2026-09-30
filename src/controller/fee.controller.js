@@ -229,8 +229,25 @@ class FeeController {
   getStudentFees = async (req, res, next) => {
     try {
       const { student_id, class_id } = req.query;
+      const isStudent = req.user?.type === "student";
+      const authenticatedStudentId = req.user?.studentId;
+
+      if (
+        isStudent &&
+        (!authenticatedStudentId ||
+          (student_id && Number(student_id) !== Number(authenticatedStudentId)))
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Students may only view their own fees",
+        });
+      }
+
       const data = await feeService.getStudentFees(
-        { student_id, class_id },
+        {
+          student_id: isStudent ? authenticatedStudentId : student_id,
+          class_id: isStudent ? undefined : class_id,
+        },
         req,
       );
       res.status(200).json({ success: true, data });

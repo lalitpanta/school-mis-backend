@@ -70,7 +70,22 @@ const dailyReportsController = {
 
   async listReports(req, res) {
     try {
-      const studentId = req.query.studentId || null;
+      const requestedStudentId = req.query.studentId || null;
+      const isStudent = req.user?.type === "student";
+
+      if (
+        isStudent &&
+        (!req.user.studentId ||
+          (requestedStudentId &&
+            Number(requestedStudentId) !== Number(req.user.studentId)))
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Students may only view their own daily reports",
+        });
+      }
+
+      const studentId = isStudent ? req.user.studentId : requestedStudentId;
       const date = req.query.date || null;
       const reports = await dailyReportsService.listReports(req, studentId, date);
       res.json({ success: true, data: reports });

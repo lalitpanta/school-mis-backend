@@ -341,6 +341,16 @@ class ResultController {
     try {
       const { studentId, classroomId } = req.params;
 
+      if (
+        req.user?.type === "student" &&
+        Number(studentId) !== Number(req.user.studentId)
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "Students may only view their own results",
+        });
+      }
+
       if (!studentId || !classroomId) {
         return res.status(400).json({
           success: false,
