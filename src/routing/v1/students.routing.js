@@ -4,6 +4,11 @@ const studentsCTRL = require("../../controller/students.controller");
 const { studentUpload } = require("../../middleware/studentUpload");
 
 router.get("/", studentsCTRL.list);
+router.get("/me/calendar/months", studentsCTRL.getCurrentStudentCalendarMonths);
+router.get(
+  "/me/calendar/months/:monthId/days",
+  studentsCTRL.getCurrentStudentCalendarDays,
+);
 router.get("/me/courses", studentsCTRL.getCurrentStudentCourses);
 router.get("/me/exams", studentsCTRL.getCurrentStudentExams);
 router.get("/me/leave", studentsCTRL.getCurrentStudentLeaveRequests);

@@ -165,7 +165,9 @@ class ResultService {
           throw new Error("Roll number and date of birth are required");
         }
 
-        const normalizedSlug = String(tenantSlug || "").trim().toLowerCase();
+        const normalizedSlug = String(tenantSlug || "")
+          .trim()
+          .toLowerCase();
         const tenantQuery = normalizedSlug
           ? `SELECT id, database_name, slug FROM tenant WHERE slug = $1 AND is_active = TRUE`
           : `SELECT id, database_name, slug FROM tenant WHERE is_active = TRUE ORDER BY slug`;

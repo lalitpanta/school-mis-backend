@@ -11,12 +11,10 @@ class FeeController {
 
   createGroup = async (req, res, next) => {
     try {
-      res
-        .status(201)
-        .json({
-          success: true,
-          data: await feeService.createGroup(req.body, req),
-        });
+      res.status(201).json({
+        success: true,
+        data: await feeService.createGroup(req.body, req),
+      });
     } catch (err) {
       next(err);
     }
@@ -35,12 +33,10 @@ class FeeController {
 
   createManagedStructure = async (req, res, next) => {
     try {
-      res
-        .status(201)
-        .json({
-          success: true,
-          data: await feeService.createManagedStructure(req.body, req),
-        });
+      res.status(201).json({
+        success: true,
+        data: await feeService.createManagedStructure(req.body, req),
+      });
     } catch (err) {
       next(err);
     }
@@ -78,12 +74,10 @@ class FeeController {
 
   duplicateStructure = async (req, res, next) => {
     try {
-      res
-        .status(201)
-        .json({
-          success: true,
-          data: await feeService.duplicateStructure(req.params.id, req),
-        });
+      res.status(201).json({
+        success: true,
+        data: await feeService.duplicateStructure(req.params.id, req),
+      });
     } catch (err) {
       next(err);
     }
@@ -91,12 +85,10 @@ class FeeController {
 
   assignStructure = async (req, res, next) => {
     try {
-      res
-        .status(201)
-        .json({
-          success: true,
-          data: await feeService.assignStructure(req.body, req),
-        });
+      res.status(201).json({
+        success: true,
+        data: await feeService.assignStructure(req.body, req),
+      });
     } catch (err) {
       next(err);
     }
@@ -104,12 +96,10 @@ class FeeController {
 
   createInvoice = async (req, res, next) => {
     try {
-      res
-        .status(201)
-        .json({
-          success: true,
-          data: await feeService.createInvoice(req.body, req),
-        });
+      res.status(201).json({
+        success: true,
+        data: await feeService.createInvoice(req.body, req),
+      });
     } catch (err) {
       next(err);
     }
@@ -136,16 +126,14 @@ class FeeController {
 
   recordInvoicePayment = async (req, res, next) => {
     try {
-      res
-        .status(201)
-        .json({
-          success: true,
-          data: await feeService.recordInvoicePayment(
-            req.params.id,
-            req.body,
-            req,
-          ),
-        });
+      res.status(201).json({
+        success: true,
+        data: await feeService.recordInvoicePayment(
+          req.params.id,
+          req.body,
+          req,
+        ),
+      });
     } catch (err) {
       next(err);
     }
@@ -164,16 +152,14 @@ class FeeController {
 
   requestReceiptCancellation = async (req, res, next) => {
     try {
-      res
-        .status(201)
-        .json({
-          success: true,
-          data: await feeService.requestReceiptCancellation(
-            req.params.id,
-            req.body.reason,
-            req,
-          ),
-        });
+      res.status(201).json({
+        success: true,
+        data: await feeService.requestReceiptCancellation(
+          req.params.id,
+          req.body.reason,
+          req,
+        ),
+      });
     } catch (err) {
       next(err);
     }
@@ -280,12 +266,10 @@ class FeeController {
 
   generateStudentDue = async (req, res, next) => {
     try {
-      res
-        .status(201)
-        .json({
-          success: true,
-          data: await feeService.generateStudentDue(req.params.studentId, req),
-        });
+      res.status(201).json({
+        success: true,
+        data: await feeService.generateStudentDue(req.params.studentId, req),
+      });
     } catch (err) {
       next(err);
     }

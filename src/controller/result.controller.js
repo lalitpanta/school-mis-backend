@@ -508,13 +508,11 @@ class ResultController {
   createExamFormat = async (req, res) => {
     try {
       const examFormat = await resultService.createExamFormat(req.body, req);
-      res
-        .status(201)
-        .json({
-          message: "Exam format created",
-          success: true,
-          data: examFormat,
-        });
+      res.status(201).json({
+        message: "Exam format created",
+        success: true,
+        data: examFormat,
+      });
     } catch (err) {
       console.error("Error creating exam format:", err);
       res.status(500).json({ success: false, message: err.message });
@@ -586,13 +584,11 @@ class ResultController {
   createExamSubject = async (req, res) => {
     try {
       const examSubject = await resultService.createExamSubject(req.body, req);
-      res
-        .status(201)
-        .json({
-          message: "Exam subject created",
-          success: true,
-          data: examSubject,
-        });
+      res.status(201).json({
+        message: "Exam subject created",
+        success: true,
+        data: examSubject,
+      });
     } catch (err) {
       console.error("Error creating exam subject:", err);
       res.status(500).json({ success: false, message: err.message });
@@ -647,13 +643,11 @@ class ResultController {
         req.body,
         req,
       );
-      res
-        .status(201)
-        .json({
-          message: "Student marks saved",
-          success: true,
-          data: studentMark,
-        });
+      res.status(201).json({
+        message: "Student marks saved",
+        success: true,
+        data: studentMark,
+      });
     } catch (err) {
       console.error("Error saving student marks:", err);
       res.status(500).json({ success: false, message: err.message });

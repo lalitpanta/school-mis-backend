@@ -203,6 +203,24 @@ async function patchAllTenantSchemas() {
             );
           `);
 
+          await tenantClient.query(`
+            CREATE TABLE IF NOT EXISTS leave_requests (
+              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+              user_id UUID NOT NULL REFERENCES tenant_users(id) ON DELETE CASCADE,
+              start_date DATE NOT NULL,
+              end_date DATE NOT NULL,
+              reason TEXT NOT NULL,
+              leave_type VARCHAR(50) NOT NULL DEFAULT 'Other',
+              status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+              admin_reply TEXT,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            ALTER TABLE leave_requests
+              ADD COLUMN IF NOT EXISTS leave_type VARCHAR(50) NOT NULL DEFAULT 'Other';
+          `);
+
           const migrationResult = await tenantClient.query(
             'SELECT value FROM "settings" WHERE key = $1 LIMIT 1',
             ["school_profile"],

@@ -97,6 +97,56 @@ class StudentsController {
     }
   };
 
+  getCurrentStudentCalendarMonths = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student") {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const { rows } = await req.tenantPool.query(`
+        SELECT m.*, y.year_label, y.year_label_AD, y.year_label_BS
+        FROM month_class_data m
+        JOIN "year" y ON y.id = m.year_id
+        WHERE y.id = (
+          SELECT id FROM "year"
+          ORDER BY is_current DESC, created_at DESC
+          LIMIT 1
+        )
+        ORDER BY m.bs_month_index ASC
+      `);
+      return res.status(200).json({ data: rows });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getCurrentStudentCalendarDays = async (req, res, next) => {
+    try {
+      if (req.user?.type !== "student") {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const { rows } = await req.tenantPool.query(
+        `SELECT cd.id, cd.month_id, cd.day_number, cd.day_of_week,
+                dc.day_type, cat.category_name
+         FROM calendar_days cd
+         JOIN month_class_data m ON m.id = cd.month_id
+         JOIN "year" y ON y.id = m.year_id
+         LEFT JOIN day_classification dc ON dc.id = cd.day_type_id
+         LEFT JOIN day_category cat ON cat.id = dc.category_id
+         WHERE cd.month_id = $1
+           AND y.id = (
+             SELECT id FROM "year"
+             ORDER BY is_current DESC, created_at DESC
+             LIMIT 1
+           )
+         ORDER BY cd.day_number ASC`,
+        [req.params.monthId],
+      );
+      return res.status(200).json({ data: rows });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   updateCurrentStudent = async (req, res, next) => {
     try {
       if (!req.user || req.user.type !== "student" || !req.user.studentId) {
@@ -187,7 +237,13 @@ class StudentsController {
         `INSERT INTO leave_requests (user_id, start_date, end_date, leave_type, reason, status)
          VALUES ($1, $2, $3, $4, $5, 'pending')
          RETURNING id, start_date, end_date, leave_type, reason, status, admin_reply, created_at`,
-        [req.user.id, start_date, end_date, leave_type || "Other", reason.trim()],
+        [
+          req.user.id,
+          start_date,
+          end_date,
+          leave_type || "Other",
+          reason.trim(),
+        ],
       );
       return res.status(201).json({
         message: "Leave request submitted",
