@@ -1843,6 +1843,7 @@ module.exports = {
   adminLogin,
   tenantLogin,
   staffLogin,
+  studentLogin,
   unifiedLogin,
   requestPasswordReset,
   verifyPasswordResetOtp,

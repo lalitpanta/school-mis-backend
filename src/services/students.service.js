@@ -604,6 +604,20 @@ class StudentsService {
           } else {
             const settingsService = require("./settings.service");
             const emailService = require("./email.service");
+            const { createStudentResetLink } = require("./studentPasswordReset.service");
+            const tenantId =
+              req?.tenantId || req?.user?.tenantId || req?.user?.id;
+            const { getTenantById } = require("./auth.service");
+            const tenant = tenantId ? await getTenantById(tenantId) : null;
+            if (!tenant?.slug) {
+              throw new Error("Unable to resolve the school login address.");
+            }
+            const portalLinks = await createStudentResetLink(
+              pool,
+              loginResult.account.id,
+              loginEmail,
+              tenant.slug,
+            );
             const schoolProfile = await settingsService
               .getSchoolProfile(req)
               .catch(() => ({}));
@@ -617,6 +631,8 @@ class StudentsService {
                 schoolName: schoolProfile?.name || "Our School",
                 loginEmail,
                 password: loginResult.temporaryPassword,
+                studentLoginUrl: portalLinks.loginUrl,
+                passwordResetUrl: portalLinks.resetUrl,
               },
             );
             createdStudent.portal_login.status = emailSent

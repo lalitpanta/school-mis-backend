@@ -47,6 +47,51 @@ class StudentsController {
     }
   };
 
+  updateCurrentStudent = async (req, res, next) => {
+    try {
+      if (!req.user || req.user.type !== "student" || !req.user.studentId) {
+        return res.status(403).json({ message: "Student access required" });
+      }
+      const editableFields = [
+        "phone_no",
+        "address",
+        "current_address",
+        "home_district",
+        "home_municipality",
+        "home_ward",
+        "home_full_address",
+        "guardian_name",
+        "guardian_email",
+        "guardian_phone",
+      ];
+      const profileUpdates = Object.fromEntries(
+        editableFields
+          .filter((field) => Object.hasOwn(req.body || {}, field))
+          .map((field) => [field, req.body[field]]),
+      );
+      if (!Object.keys(profileUpdates).length) {
+        return res.status(400).json({
+          message: "Provide at least one editable profile field.",
+        });
+      }
+
+      const updated = await studentsService.update(
+        req.user.studentId,
+        profileUpdates,
+        req,
+      );
+      if (!updated) {
+        return res.status(404).json({ message: "Student profile not found" });
+      }
+      return res.status(200).json({
+        message: "Student profile updated.",
+        data: updated,
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   create = async (req, res, next) => {
     try {
       const payload = req.body || {};

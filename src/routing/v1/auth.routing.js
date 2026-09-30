@@ -4,6 +4,9 @@ const {
   loginAdmin,
   loginTenant,
   loginStaff,
+  studentLoginController,
+  requestStudentPasswordResetController,
+  resetStudentPasswordController,
   unifiedLoginController,
   requestPasswordResetController,
   verifyPasswordResetOtpController,
@@ -40,6 +43,11 @@ router.post("/tenant/login", loginTenant);
 
 // Staff/User login
 router.post("/staff/login", loginStaff);
+
+// Student-only authentication and recovery
+router.post("/student/login", studentLoginController);
+router.post("/student/password/forgot", requestStudentPasswordResetController);
+router.post("/student/password/reset", resetStudentPasswordController);
 
 // Unified login (Admin, Tenant, or Staff)
 router.post("/login", unifiedLoginController);

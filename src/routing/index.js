@@ -220,8 +220,8 @@ masterRouter.use(
 masterRouter.use(
   "/students",
   authenticateToken,
-  requireTenantUser,
   attachTenantContext,
+  requireTenantUser,
   require("./v1/students.routing"),
 );
 

@@ -2,6 +2,7 @@ const {
   adminLogin,
   tenantLogin,
   staffLogin,
+  studentLogin,
   unifiedLogin,
   requestPasswordReset,
   verifyPasswordResetOtp,
@@ -103,6 +104,64 @@ async function loginStaff(req, res) {
     res.status(401).json({
       success: false,
       message: error.message || "Login failed",
+    });
+  }
+}
+
+async function studentLoginController(req, res) {
+  try {
+    const { tenantSlug, email, password } = req.body || {};
+    if (!tenantSlug || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "School slug, email, and password are required.",
+      });
+    }
+    const result = await studentLogin(tenantSlug, email, password, req);
+    return res.status(200).json({
+      success: true,
+      message: "Student login successful.",
+      data: result,
+      userType: "student",
+    });
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid school, email, or password.",
+    });
+  }
+}
+
+async function requestStudentPasswordResetController(req, res) {
+  try {
+    const { requestStudentPasswordReset } = require("../services/studentPasswordReset.service");
+    const result = await requestStudentPasswordReset(
+      req.body?.email,
+      req.body?.tenantSlug,
+    );
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    console.error("Student password reset request failed:", error.message);
+    return res.status(400).json({
+      success: false,
+      message: "Unable to send the reset link right now. Please try again later.",
+    });
+  }
+}
+
+async function resetStudentPasswordController(req, res) {
+  try {
+    const { resetStudentPassword } = require("../services/studentPasswordReset.service");
+    const result = await resetStudentPassword(
+      req.body?.token,
+      req.body?.tenantSlug,
+      req.body?.newPassword,
+    );
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Unable to reset password.",
     });
   }
 }
@@ -635,6 +694,9 @@ module.exports = {
   loginAdmin,
   loginTenant,
   loginStaff,
+  studentLoginController,
+  requestStudentPasswordResetController,
+  resetStudentPasswordController,
   unifiedLoginController,
   requestPasswordResetController,
   verifyPasswordResetOtpController,

@@ -247,13 +247,23 @@ class EmailService {
 
       const templateHasLoginEmail = /{{\s*loginEmail\s*}}/.test(template.body);
       const templateHasPassword = /{{\s*password\s*}}/.test(template.body);
+      const templateHasLoginUrl = /{{\s*studentLoginUrl\s*}}/.test(template.body);
+      const templateHasResetUrl = /{{\s*passwordResetUrl\s*}}/.test(template.body);
       if (
         eventType === "student_created" &&
         payload.loginEmail &&
         payload.password &&
         (!templateHasLoginEmail || !templateHasPassword)
       ) {
-        htmlBody += `<hr/><h3>Student Portal Login</h3>${templateHasLoginEmail ? "" : `<p><strong>Login email:</strong> ${escapeHtml(payload.loginEmail)}</p>`}${templateHasPassword ? "" : `<p><strong>Temporary password:</strong> ${escapeHtml(payload.password)}</p>`}<p>Please change your password after signing in.</p>`;
+        htmlBody += `<hr/><h3>Student Portal Login</h3>${templateHasLoginEmail ? "" : `<p><strong>Login email:</strong> ${escapeHtml(payload.loginEmail)}</p>`}${templateHasPassword ? "" : `<p><strong>Temporary password:</strong> ${escapeHtml(payload.password)}</p>`}`;
+      }
+      if (eventType === "student_created" && payload.passwordResetUrl) {
+        if (!templateHasLoginUrl && payload.studentLoginUrl) {
+          htmlBody += `<p><a href="${escapeHtml(payload.studentLoginUrl)}">Open student login</a></p>`;
+        }
+        if (!templateHasResetUrl) {
+          htmlBody += `<p><a href="${escapeHtml(payload.passwordResetUrl)}">Set or reset your password</a></p><p>This secure link expires in 60 minutes.</p>`;
+        }
       }
 
       const to =
