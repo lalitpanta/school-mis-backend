@@ -12,11 +12,7 @@ function normalizeEmail(email) {
 }
 
 function getFrontendUrl() {
-  return (
-    process.env.STUDENT_PORTAL_URL ||
-    process.env.FRONTEND_URL ||
-    "https://mis.benchmarkassociates.com.np"
-  )
+  return (process.env.FRONTEND_URL || "https://mis-frontend-g6g3.onrender.com")
     .split(",")[0]
     .trim()
     .replace(/\/$/, "");
@@ -70,7 +66,8 @@ async function createStudentResetLink(pool, userId, email, tenantSlug) {
   );
 
   const resetUrl = new URL(`${getFrontendUrl()}/student/reset-password`);
-  resetUrl.hash = new URLSearchParams({ token, tenant: tenantSlug }).toString();
+  resetUrl.searchParams.set("token", token);
+  resetUrl.searchParams.set("tenant", tenantSlug);
 
   const loginUrl = new URL(`${getFrontendUrl()}/student/login`);
   loginUrl.searchParams.set("tenantSlug", tenantSlug);
