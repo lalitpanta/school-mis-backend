@@ -34,6 +34,7 @@ router.put("/school", settingsCTRL.updateSchoolProfile);
 
 // Test email endpoint
 router.post("/test-email", settingsCTRL.sendTestEmail);
+router.post("/email/gmail/connect", settingsCTRL.startGmailOAuth);
 
 // Notification settings
 router.get("/notifications", settingsCTRL.getNotificationSettings);

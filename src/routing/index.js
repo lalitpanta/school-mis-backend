@@ -38,6 +38,12 @@ masterRouter.get(
   auditCTRL.getAuditStats,
 );
 
+// Google redirects here after Gmail OAuth consent; the signed state binds it to a tenant.
+masterRouter.get(
+  "/settings/email/gmail/callback",
+  require("../controller/settings.controller").gmailOAuthCallback,
+);
+
 // School/Tenant specific routes
 masterRouter.use(
   "/year",

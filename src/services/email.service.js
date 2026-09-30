@@ -24,7 +24,9 @@ function renderHtml(template, variables = {}) {
 }
 
 function safeHeader(value) {
-  return String(value ?? "").replace(/[\r\n]+/g, " ").trim();
+  return String(value ?? "")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
 }
 
 function createGmailRawMessage({ from, senderName, to, subject, html }) {
@@ -180,6 +182,7 @@ class EmailService {
       return {
         messageId: result.id,
         integrationEnabled: config.enabled === true,
+        provider: "gmail_api",
       };
     }
 
@@ -196,6 +199,7 @@ class EmailService {
       return {
         messageId: result.messageId,
         integrationEnabled: config.enabled === true,
+        provider: "smtp",
       };
     } catch (error) {
       const details = error?.responseCode
