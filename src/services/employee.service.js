@@ -92,9 +92,7 @@ class EmployeeService {
       let idx = 1;
 
       if (filters.is_active !== "all") {
-        conditions.push(
-          `employees.is_active = $${idx++}`,
-        );
+        conditions.push(`employees.is_active = $${idx++}`);
         values.push(filters.is_active === "false" ? false : true);
       }
 
