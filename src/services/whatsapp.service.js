@@ -38,6 +38,15 @@ class WhatsAppService {
         message = message.replace(regex, value || '');
       }
 
+      if (eventType === 'user_created' && payload.passwordResetUrl) {
+        if (!template.body.includes('{{passwordResetUrl}}')) {
+          message += `\nSet your portal password: ${payload.passwordResetUrl}`;
+        }
+        if (!template.body.includes('{{loginUrl}}') && payload.loginUrl) {
+          message += `\nSchool portal: ${payload.loginUrl}`;
+        }
+      }
+
       let to = payload.to;
       if (!to && eventType === 'user_created' && config.admin_whatsapp_phone) {
         to = config.admin_whatsapp_phone;

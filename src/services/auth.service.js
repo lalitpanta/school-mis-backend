@@ -1049,6 +1049,8 @@ async function staffLogin(tenantSlug, email, password, req) {
           u.name,
           u.password_hash, 
           u.is_active,
+          u.authority_mode,
+          u.module_access,
           json_agg(json_build_object('id', r.id, 'role_name', r.role_name)) FILTER (WHERE r.id IS NOT NULL) as roles
         FROM tenant_users u
         LEFT JOIN user_roles ur ON u.id = ur.user_id
@@ -1139,7 +1141,7 @@ async function staffLogin(tenantSlug, email, password, req) {
         [user.id],
       );
 
-      // Flatten all role permissions into a single deduplicated array
+      // Flatten all role permissions into a single deduplicated array.
       const permissionsSet = new Set();
       for (const row of rolesResult.rows) {
         let perms = row.permissions;
@@ -1154,7 +1156,59 @@ async function staffLogin(tenantSlug, email, password, req) {
           perms.forEach((p) => permissionsSet.add(p));
         }
       }
-      const permissions = [...permissionsSet];
+      const rolePermissions = [...permissionsSet];
+      let directAccess = user.module_access || [];
+      if (typeof directAccess === "string") {
+        try {
+          directAccess = JSON.parse(directAccess);
+        } catch {
+          directAccess = [];
+        }
+      }
+      if (!Array.isArray(directAccess)) directAccess = [];
+
+      const settingsSubmodules = new Set([
+        "school",
+        "academic",
+        "calendarsettings",
+        "users",
+        "roles",
+        "notices",
+        "integrations",
+        "devices",
+        "backup",
+        "activitylog",
+        "activesessions",
+        "security",
+        "departments",
+        "classrooms",
+        "courses",
+        "rooms",
+        "students",
+        "theme",
+        "profile",
+      ]);
+      const directPermissions = directAccess.map((moduleKey) => {
+        const normalized = String(moduleKey).trim().toLowerCase();
+        if (normalized.startsWith("settings.")) {
+          return `${normalized}.view`;
+        }
+        if (settingsSubmodules.has(normalized)) {
+          return `settings.${normalized}.view`;
+        }
+        const routeAliases = {
+          teachers: "teacher",
+          students: "student",
+          employees: "employee",
+          fee_management: "accounts",
+          fees: "accounts",
+        };
+        return `${routeAliases[normalized] || normalized}.view`;
+      });
+      const permissions =
+        user.authority_mode === "direct_access"
+          ? directPermissions
+          : rolePermissions;
       const roles = user.roles || [];
 
       // Derive allowed modules from user's permissions and the tenant-enabled modules.
@@ -1171,8 +1225,7 @@ async function staffLogin(tenantSlug, email, password, req) {
         "results",
         "result_portal",
         "daily_reports",
-        "fee_management",
-        "fees",
+        "leave_management",
         "accounts",
       ]);
 
@@ -1180,12 +1233,26 @@ async function staffLogin(tenantSlug, email, password, req) {
 
       for (const permission of permissions) {
         const parts = String(permission).split(".");
-        if (parts.length > 0) {
-          const module = parts[0];
-          if (supportedModules.has(module)) {
-            userModules.add(module);
-          }
+        if (parts.length < 2 || parts[parts.length - 1] !== "view") continue;
+
+        const permissionModule = parts.slice(0, -1).join(".").toLowerCase();
+        let routeModule = permissionModule;
+        if (
+          ["resultformat", "resultsubject"].includes(permissionModule) ||
+          ["settings.resultformat", "settings.resultsubject"].includes(
+            permissionModule,
+          )
+        ) {
+          routeModule = "results";
+        } else if (permissionModule.startsWith("settings.")) {
+          routeModule = "settings";
+        } else if (settingsSubmodules.has(permissionModule)) {
+          routeModule = "settings";
+        } else if (["fee_management", "fees"].includes(permissionModule)) {
+          routeModule = "accounts";
         }
+
+        if (supportedModules.has(routeModule)) userModules.add(routeModule);
       }
 
       // Ensure tenant-enabled modules remain available when a user has matching permissions.
@@ -1195,17 +1262,16 @@ async function staffLogin(tenantSlug, email, password, req) {
         }
       }
 
-      // Ensure user has access to dashboard if they have any permission.
-      if (permissions.length > 0) {
-        userModules.add("dashboard");
-      }
-
       // Convert to array
       const userAssignedModules = Array.from(userModules);
 
       // Verify modules are also enabled at tenant level
+      const enabledModules = new Set(
+        assignedModules.map((module) => String(module).toLowerCase()),
+      );
       const finalModules = userAssignedModules.filter((m) =>
-        assignedModules.includes(m),
+        enabledModules.has(m) ||
+        (m === "accounts" && enabledModules.has("fee_management")),
       );
 
       console.log(

@@ -284,6 +284,36 @@ class EmailService {
     }
   }
 
+  async sendUserInvitation(req, payload = {}) {
+    const config = await this.getConfig(req);
+    if (!config || !config.enabled) {
+      throw new Error("Email integration is disabled or not configured.");
+    }
+    if (!payload.to || !payload.passwordResetUrl || !payload.loginUrl) {
+      throw new Error("The invitation email is missing required account links.");
+    }
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937;max-width:600px;margin:0 auto">
+        <h2 style="color:#111827">Your school portal account is ready</h2>
+        <p>Hello ${escapeHtml(payload.name || "there")},</p>
+        <p>An account has been created for you${payload.tenantName ? ` at ${escapeHtml(payload.tenantName)}` : ""}.</p>
+        <p><strong>Login email:</strong> ${escapeHtml(payload.to)}</p>
+        <p><a href="${escapeHtml(payload.passwordResetUrl)}" style="display:inline-block;padding:12px 18px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:6px">Set your password</a></p>
+        <p>This one-time setup link expires in 60 minutes.</p>
+        <p><a href="${escapeHtml(payload.loginUrl)}">Open the school portal</a></p>
+        <p>If you were not expecting this account, contact your school administrator.</p>
+      </div>`;
+
+    await this.sendEmail(
+      req,
+      payload.to,
+      "Set up your school portal account",
+      html,
+    );
+    return true;
+  }
+
   /**
    * Core function to send an email using configured SMTP
    */

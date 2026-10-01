@@ -79,6 +79,39 @@ async function createStudentResetLink(pool, userId, email, tenantSlug) {
   };
 }
 
+async function createTenantUserResetLink(pool, userId, email, tenantSlug) {
+  await ensureResetSchema(pool);
+  const token = crypto.randomBytes(32).toString("base64url");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  await pool.query(
+    `UPDATE student_password_reset_tokens
+     SET used_at = CURRENT_TIMESTAMP
+     WHERE tenant_user_id = $1 AND used_at IS NULL`,
+    [userId],
+  );
+  await pool.query(
+    `INSERT INTO student_password_reset_tokens
+       (id, tenant_user_id, token_hash, expires_at)
+     VALUES ($1, $2, $3, CURRENT_TIMESTAMP + ($4 * INTERVAL '1 minute'))`,
+    [crypto.randomUUID(), userId, tokenHash, RESET_TTL_MINUTES],
+  );
+
+  const resetUrl = new URL(`${getFrontendUrl()}/reset-password`);
+  resetUrl.searchParams.set("token", token);
+  resetUrl.searchParams.set("tenant", tenantSlug);
+  resetUrl.searchParams.set("email", normalizeEmail(email));
+
+  const loginUrl = new URL(`${getFrontendUrl()}/login`);
+  loginUrl.searchParams.set("tenantSlug", tenantSlug);
+  loginUrl.searchParams.set("email", normalizeEmail(email));
+
+  return {
+    resetUrl: resetUrl.toString(),
+    loginUrl: loginUrl.toString(),
+    email: normalizeEmail(email),
+  };
+}
+
 async function requestStudentPasswordReset(email, tenantSlug) {
   const normalizedEmail = normalizeEmail(email);
   const tenant = await getActiveTenant(tenantSlug);
@@ -191,8 +224,69 @@ async function resetStudentPassword(token, tenantSlug, newPassword) {
   };
 }
 
+async function resetTenantUserPassword(token, tenantSlug, newPassword) {
+  if (String(newPassword || "").length < 8) {
+    throw new Error("Password must be at least 8 characters long.");
+  }
+  const tenant = await getActiveTenant(tenantSlug);
+  if (!tenant || !token) {
+    throw new Error("This reset link is invalid or has expired.");
+  }
+
+  const pool = getTenantPool(tenant.id, tenant.database_name);
+  await ensureResetSchema(pool);
+  const tokenHash = crypto
+    .createHash("sha256")
+    .update(String(token))
+    .digest("hex");
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const tokenResult = await client.query(
+      `SELECT reset.id, reset.tenant_user_id
+       FROM student_password_reset_tokens reset
+       JOIN tenant_users user_account ON user_account.id = reset.tenant_user_id
+       WHERE reset.token_hash = $1
+         AND reset.used_at IS NULL
+         AND reset.expires_at > CURRENT_TIMESTAMP
+         AND user_account.student_record_id IS NULL
+         AND user_account.is_active = TRUE
+       FOR UPDATE OF reset`,
+      [tokenHash],
+    );
+    const reset = tokenResult.rows[0];
+    if (!reset) {
+      throw new Error("This reset link is invalid or has expired.");
+    }
+
+    const passwordHash = await bcrypt.hash(String(newPassword), 12);
+    await client.query(
+      `UPDATE tenant_users
+       SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND is_active = TRUE`,
+      [passwordHash, reset.tenant_user_id],
+    );
+    await client.query(
+      "UPDATE student_password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = $1",
+      [reset.id],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return {
+    message: "Password set successfully. Sign in to your school portal.",
+  };
+}
+
 module.exports = {
   createStudentResetLink,
+  createTenantUserResetLink,
   requestStudentPasswordReset,
   resetStudentPassword,
+  resetTenantUserPassword,
 };

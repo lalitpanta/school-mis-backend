@@ -1,4 +1,5 @@
 const userService = require("../services/user.service");
+const crypto = require("crypto");
 
 class UserController {
   /**
@@ -21,17 +22,21 @@ class UserController {
         section_id,
       } = req.body;
 
-      if (!email || !password) {
+      const normalizedEmail = String(email || "")
+        .trim()
+        .toLowerCase();
+      if (!normalizedEmail) {
         return res
           .status(400)
-          .json({ error: "Email and password are required" });
+          .json({ error: "Email is required" });
       }
+      const initialPassword = password || crypto.randomBytes(32).toString("hex");
 
       // Create user
       const user = await userService.createUser(
         {
-          email,
-          password,
+          email: normalizedEmail,
+          password: initialPassword,
           name,
           phone,
           department_store,
@@ -55,29 +60,51 @@ class UserController {
         );
       }
 
-      // Trigger email notification for new user
-      if (userWithRoles && userWithRoles.email) {
+      let portalLinks = null;
+      let invitationEmailSent = false;
+      let invitationEmailError = null;
+      try {
+        const tenantId = req?.tenantId || req?.user?.tenantId || req?.user?.id;
+        const { getTenantById } = require("../services/auth.service");
+        const tenant = tenantId ? await getTenantById(tenantId) : null;
+        if (!tenant?.slug) {
+          throw new Error("Unable to resolve the school portal address.");
+        }
+
+        const { createTenantUserResetLink } = require("../services/studentPasswordReset.service");
+        const { getTenantPool } = require("../config/tenantDb");
+        const tenantPool =
+          req.tenantPool || getTenantPool(tenant.id, tenant.database_name);
+        portalLinks = await createTenantUserResetLink(
+          tenantPool,
+          userWithRoles.id,
+          userWithRoles.email,
+          tenant.slug,
+        );
         const emailService = require("../services/email.service");
-        // Do not await to avoid blocking the response
-        emailService
-          .sendEmailForEvent(req, "user_created", {
-            to: userWithRoles.email,
-            name: userWithRoles.name || "User",
-            username: userWithRoles.email,
-            password: password, // Send raw password securely only on creation
-          })
-          .catch((err) => console.error("Email error:", err));
+        invitationEmailSent = await emailService.sendUserInvitation(req, {
+          to: userWithRoles.email,
+          name: userWithRoles.name || "User",
+          tenantName: tenant.name,
+          passwordResetUrl: portalLinks.resetUrl,
+          loginUrl: portalLinks.loginUrl,
+        });
+      } catch (invitationError) {
+        invitationEmailError =
+          "Check the email integration settings and server logs.";
+        console.error("User invitation email failed:", invitationError);
       }
 
-      // Trigger WhatsApp notification for new user
-      if (userWithRoles) {
+      // Preserve optional WhatsApp invitations, but never send a password.
+      if (userWithRoles && portalLinks) {
         const whatsappService = require("../services/whatsapp.service");
         whatsappService
           .sendWhatsAppForEvent(req, "user_created", {
             to: userWithRoles.phone,
             name: userWithRoles.name || "User",
             username: userWithRoles.email,
-            password: password,
+            passwordResetUrl: portalLinks.resetUrl,
+            loginUrl: portalLinks.loginUrl,
           })
           .catch((err) => console.error("WhatsApp error:", err));
       }
@@ -85,6 +112,10 @@ class UserController {
       return res.status(201).json({
         message: "User created successfully",
         data: userWithRoles,
+        invitation: {
+          email_sent: invitationEmailSent,
+          email_error: invitationEmailError,
+        },
       });
     } catch (err) {
       next(err);

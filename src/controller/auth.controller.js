@@ -166,6 +166,23 @@ async function resetStudentPasswordController(req, res) {
   }
 }
 
+async function resetTenantUserPasswordController(req, res) {
+  try {
+    const { resetTenantUserPassword } = require("../services/studentPasswordReset.service");
+    const result = await resetTenantUserPassword(
+      req.body?.token,
+      req.body?.tenantSlug,
+      req.body?.newPassword,
+    );
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Unable to set your password.",
+    });
+  }
+}
+
 /**
  * Create Tenant Controller (Admin only)
  */
@@ -697,6 +714,7 @@ module.exports = {
   studentLoginController,
   requestStudentPasswordResetController,
   resetStudentPasswordController,
+  resetTenantUserPasswordController,
   unifiedLoginController,
   requestPasswordResetController,
   verifyPasswordResetOtpController,
