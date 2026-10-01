@@ -1526,8 +1526,20 @@ async function requestPasswordReset(email, tenantSlug = "") {
     </div>
   `;
 
+  let emailSent = false;
   try {
-    await emailService.sendEmail(null, normalizedEmail, subject, html);
+    const emailContext = account.tenant
+      ? {
+          tenantPool: getTenantPool(
+            account.tenantId,
+            account.databaseName,
+          ),
+          tenantId: account.tenantId,
+          user: { type: account.userType },
+        }
+      : null;
+    await emailService.sendEmail(emailContext, normalizedEmail, subject, html);
+    emailSent = true;
   } catch (error) {
     console.warn("Password reset email not sent:", error.message);
     if (process.env.NODE_ENV === "production") {
@@ -1537,7 +1549,10 @@ async function requestPasswordReset(email, tenantSlug = "") {
 
   const response = {
     success: true,
-    message: `Password reset OTP has been sent to ${normalizedEmail}.`,
+    emailSent,
+    message: emailSent
+      ? `Password reset OTP has been sent to ${normalizedEmail}.`
+      : "Email delivery failed in this environment. Use the development OTP below.",
   };
 
   if (process.env.NODE_ENV !== "production") {
