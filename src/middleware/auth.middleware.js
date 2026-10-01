@@ -139,6 +139,121 @@ function requirePermission(...requiredPermissions) {
   };
 }
 
+function requireSettingsPermission(fallbackModule = null) {
+  const routes = [
+    ["/active-sessions", "settings.activesessions"],
+    ["/academic-calendar", "settings.calendarsettings"],
+    ["/notifications", "settings.notices"],
+    ["/sms", "settings.notices"],
+    ["/audit-logs", "settings.activitylog"],
+    ["/audit-stats", "settings.activitylog"],
+    ["/test-email", "settings.integrations"],
+    ["/email", "settings.integrations"],
+    ["/classrooms", "settings.classrooms"],
+    ["/sections", "settings.classrooms"],
+    ["/classes", "settings.classrooms"],
+    ["/students", "settings.students"],
+    ["/departments", "settings.departments"],
+    ["/classroom-layout", "settings.classrooms"],
+    ["/security", "settings.security"],
+    ["/integrations", "settings.integrations"],
+    ["/devices", "settings.devices"],
+    ["/backup", "settings.backup"],
+    ["/activity-log", "settings.activitylog"],
+    ["/rooms", "settings.rooms"],
+    ["/courses", "settings.courses"],
+    ["/notices", "settings.notices"],
+    ["/theme", "settings.theme"],
+    ["/school", "settings.school"],
+    ["/users", "users"],
+    ["/roles", "roles"],
+    ["/permissions", "roles"],
+    ["/fees", "settings.fees"],
+    ["/teachers", "teacher"],
+  ];
+
+  return (req, res, next) => {
+    if (req.method === "OPTIONS") return next();
+    if (req.user?.type === "tenant" || req.user?.type === "system_admin") {
+      return next();
+    }
+    if (req.user?.type !== "staff") {
+      return res
+        .status(403)
+        .json({ success: false, message: "Settings access denied" });
+    }
+
+    const requestPath = String(req.path || "/").toLowerCase();
+    if (
+      fallbackModule === "users" &&
+      (requestPath === "/me" || requestPath.startsWith("/me/"))
+    ) {
+      return next();
+    }
+    const route = routes.find(
+      ([prefix]) =>
+        requestPath === prefix || requestPath.startsWith(`${prefix}/`),
+    );
+    const permissionModule = route?.[1] || fallbackModule || "settings";
+
+    let action =
+      req.method === "GET"
+        ? "view"
+        : req.method === "DELETE"
+          ? "delete"
+          : req.method === "POST"
+            ? "create"
+            : "edit";
+
+    if (requestPath.endsWith("/read") || requestPath.endsWith("/logs")) {
+      action = "view";
+    } else if (
+      requestPath.endsWith("/pin") ||
+      requestPath.endsWith("/archive") ||
+      requestPath.endsWith("/send-email") ||
+      requestPath.endsWith("/revoke-others")
+    ) {
+      action = "edit";
+    } else if (
+      req.method === "POST" &&
+      (requestPath.endsWith("/roles") ||
+        requestPath.endsWith("/permissions") ||
+        requestPath.endsWith("/reset-password"))
+    ) {
+      action = "edit";
+    } else if (requestPath.endsWith("/logout")) {
+      action = "view";
+    } else if (
+      req.method === "POST" &&
+      ["/test-email", "/email/gmail/connect", "/sms/send"].some((suffix) =>
+        requestPath.endsWith(suffix),
+      )
+    ) {
+      action = "edit";
+    }
+
+    const permissions = Array.isArray(req.user.permissions)
+      ? req.user.permissions.map((permission) => String(permission).toLowerCase())
+      : [];
+    const legacyModule = permissionModule.startsWith("settings.")
+      ? permissionModule.slice("settings.".length)
+      : permissionModule;
+    const required = [`${permissionModule}.${action}`, `${legacyModule}.${action}`];
+    if (action === "view") {
+      required.push("settings.view");
+    } else {
+      required.push("settings.edit");
+    }
+
+    if (!required.some((permission) => permissions.includes(permission))) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Permission denied" });
+    }
+    return next();
+  };
+}
+
 /**
  * Middleware to enforce module access for tenant users
  */
@@ -216,6 +331,7 @@ module.exports = {
   requireTenant,
   requireTenantUser,
   requirePermission,
+  requireSettingsPermission,
   requireModule,
   requireAdminOrTenantModule,
   attachTenantContext,

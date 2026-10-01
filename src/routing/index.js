@@ -6,6 +6,7 @@ const {
   requireTenant,
   requireTenantUser,
   requirePermission,
+  requireSettingsPermission,
   requireModule,
   requireAdminOrTenantModule,
   attachTenantContext,
@@ -124,6 +125,7 @@ masterRouter.use(
   requireTenant,
   attachTenantContext,
   requireModule("settings"),
+  requireSettingsPermission("roles"),
   require("./v1/role.routing"),
 );
 
@@ -133,6 +135,7 @@ masterRouter.use(
   requireTenant,
   attachTenantContext,
   requireModule("settings"),
+  requireSettingsPermission("roles"),
   require("./v1/permission.routing"),
 );
 
@@ -142,6 +145,7 @@ masterRouter.use(
   requireTenant,
   attachTenantContext,
   requireModule("settings"),
+  requireSettingsPermission("users"),
   require("./v1/user.routing"),
 );
 
@@ -150,6 +154,7 @@ masterRouter.use(
   authenticateToken,
   requireTenant,
   attachTenantContext,
+  requireSettingsPermission("users"),
   require("./v1/user-role.routing"),
 );
 
@@ -158,6 +163,7 @@ masterRouter.use(
   authenticateToken,
   requireTenant,
   attachTenantContext,
+  requireSettingsPermission("settings.departments"),
   require("./v1/department.routing"),
 );
 
@@ -174,6 +180,7 @@ masterRouter.use(
   authenticateToken,
   requireTenant,
   attachTenantContext,
+  requireSettingsPermission("settings.classrooms"),
   require("./v1/classes.routing"),
 );
 
@@ -182,6 +189,7 @@ masterRouter.use(
   authenticateToken,
   requireTenant,
   attachTenantContext,
+  requireSettingsPermission("settings.classrooms"),
   require("./v1/sections.routing"),
 );
 
@@ -190,6 +198,7 @@ masterRouter.use(
   authenticateToken,
   requireTenant,
   attachTenantContext,
+  requireSettingsPermission("settings.rooms"),
   require("./v1/rooms.routing"),
 );
 

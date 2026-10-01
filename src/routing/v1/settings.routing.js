@@ -4,6 +4,7 @@ const settingsCTRL = require("../../controller/settings.controller");
 const noticesCTRL = require("../../controller/notices.controller");
 const auditCTRL = require("../../controller/audit.controller");
 const activeSessionCTRL = require("../../controller/activeSession.controller");
+const { requireSettingsPermission } = require("../../middleware/auth.middleware");
 
 if (process.env.NODE_ENV !== "production") {
   router.use((req, res, next) => {
@@ -11,6 +12,8 @@ if (process.env.NODE_ENV !== "production") {
     next();
   });
 }
+
+router.use(requireSettingsPermission());
 
 /**
  * @route GET /api/v1/settings
