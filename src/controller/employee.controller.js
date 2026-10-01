@@ -23,6 +23,7 @@ class EmployeeController {
         search: req.query.search,
         department_id: req.query.department_id,
         designation: req.query.designation,
+        is_active: req.query.is_active,
       };
       const employees = await employeeService.listEmployees(req, filters);
       console.log("[Employee List] Found", employees.length, "employees");

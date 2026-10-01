@@ -87,9 +87,16 @@ class EmployeeService {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensureTable(pool);
 
-      const conditions = ["employees.is_active = TRUE"];
+      const conditions = [];
       const values = [];
       let idx = 1;
+
+      if (filters.is_active !== "all") {
+        conditions.push(
+          `employees.is_active = $${idx++}`,
+        );
+        values.push(filters.is_active === "false" ? false : true);
+      }
 
       // Permission filtering:
       // - system_admin, tenant, and staff can view all employees
@@ -349,6 +356,7 @@ class EmployeeService {
         major_subject: "major_subject",
         percentage_cgpa: "percentage_cgpa",
         documents: "documents",
+        is_active: "is_active",
       };
 
       for (const [key, dbField] of Object.entries(fieldMap)) {
