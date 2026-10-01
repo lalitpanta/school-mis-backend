@@ -1255,13 +1255,6 @@ async function staffLogin(tenantSlug, email, password, req) {
         if (supportedModules.has(routeModule)) userModules.add(routeModule);
       }
 
-      // Ensure tenant-enabled modules remain available when a user has matching permissions.
-      for (const module of assignedModules) {
-        if (supportedModules.has(String(module).toLowerCase())) {
-          userModules.add(String(module).toLowerCase());
-        }
-      }
-
       // Convert to array
       const userAssignedModules = Array.from(userModules);
 
