@@ -263,6 +263,39 @@ class StudentsService {
       }
 
       if (String(current.email || "").toLowerCase() === studentEmail) {
+        if (current.student_record_id) {
+          const linkedStudent = await pool.query(
+            "SELECT id FROM students WHERE id = $1 LIMIT 1;",
+            [current.student_record_id],
+          );
+
+          if (linkedStudent.rows.length === 0) {
+            const reclaimed = await pool.query(
+              `UPDATE tenant_users
+               SET email = $1, password_hash = $2, name = $3, phone = $4,
+                   student_record_id = $5, section_record_id = $6,
+                   is_active = TRUE, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $7
+               RETURNING *;`,
+              [
+                studentEmail,
+                passwordHash,
+                student.full_name || current.name,
+                student.phone_no || current.phone,
+                student.id,
+                student.section_id || null,
+                current.id,
+              ],
+            );
+
+            return {
+              account: reclaimed.rows[0],
+              created: true,
+              temporaryPassword,
+            };
+          }
+        }
+
         throw new Error("This email is already used by another account.");
       }
     }
@@ -853,23 +886,53 @@ class StudentsService {
     try {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensureTable(pool);
-      const existing = await pool.query(
-        "SELECT id, full_name FROM students WHERE id = $1",
-        [id],
-      );
-      const q = `DELETE FROM students WHERE id = $1 RETURNING id`;
-      const res = await pool.query(q, [id]);
+      const client = await pool.connect();
+      let existingStudent;
+      let deletedStudent;
 
-      if (res.rows[0]) {
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          "ALTER TABLE tenant_users ADD COLUMN IF NOT EXISTS student_record_id INTEGER;",
+        );
+        const existing = await client.query(
+          "SELECT id, full_name FROM students WHERE id = $1 FOR UPDATE",
+          [id],
+        );
+
+        if (!existing.rows.length) {
+          await client.query("ROLLBACK");
+          return null;
+        }
+
+        existingStudent = existing.rows[0];
+        await client.query(
+          "DELETE FROM tenant_users WHERE student_record_id = $1",
+          [id],
+        );
+        const result = await client.query(
+          "DELETE FROM students WHERE id = $1 RETURNING id",
+          [id],
+        );
+        deletedStudent = result.rows[0] || null;
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+
+      if (deletedStudent) {
         try {
           await recordEntityAudit({
             req,
             entityType: "student",
             entityId: id,
-            entityName: existing.rows[0]?.full_name || "Student",
+            entityName: existingStudent?.full_name || "Student",
             action: "delete",
             title: "Student deleted",
-            message: `Deleted student ${existing.rows[0]?.full_name || "record"}.`,
+            message: `Deleted student ${existingStudent?.full_name || "record"}.`,
             severity: "warning",
             metadata: {
               deletedId: id,
@@ -880,7 +943,7 @@ class StudentsService {
         }
       }
 
-      return res.rows[0] || null;
+      return deletedStudent || null;
     } catch (err) {
       throw new Error(`Failed to delete student ${id}: ${err.message}`);
     }
