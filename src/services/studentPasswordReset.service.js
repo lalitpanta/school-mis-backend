@@ -79,7 +79,13 @@ async function createStudentResetLink(pool, userId, email, tenantSlug) {
   };
 }
 
-async function createTenantUserResetLink(pool, userId, email, tenantSlug) {
+async function createTenantUserResetLink(
+  pool,
+  userId,
+  email,
+  tenantSlug,
+  { teacherPortal = false } = {},
+) {
   await ensureResetSchema(pool);
   const token = crypto.randomBytes(32).toString("base64url");
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
@@ -96,12 +102,13 @@ async function createTenantUserResetLink(pool, userId, email, tenantSlug) {
     [crypto.randomUUID(), userId, tokenHash, RESET_TTL_MINUTES],
   );
 
-  const resetUrl = new URL(`${getFrontendUrl()}/reset-password`);
+  const portalPath = teacherPortal ? "/teacher" : "";
+  const resetUrl = new URL(`${getFrontendUrl()}${portalPath}/reset-password`);
   resetUrl.searchParams.set("token", token);
   resetUrl.searchParams.set("tenant", tenantSlug);
   resetUrl.searchParams.set("email", normalizeEmail(email));
 
-  const loginUrl = new URL(`${getFrontendUrl()}/login`);
+  const loginUrl = new URL(`${getFrontendUrl()}${portalPath}/login`);
   loginUrl.searchParams.set("tenantSlug", tenantSlug);
   loginUrl.searchParams.set("email", normalizeEmail(email));
 

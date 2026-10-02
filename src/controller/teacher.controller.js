@@ -1,7 +1,119 @@
 const teacherService = require("../services/teacher.service");
 const { v4: uuidv4 } = require("uuid");
+const crypto = require("crypto");
+const userService = require("../services/user.service");
 
 class TeacherController {
+  _createTeacherPortalLogin = async (teacher, req) => {
+    const email = String(teacher.work_email || teacher.personal_email || "")
+      .trim()
+      .toLowerCase();
+    if (!email) {
+      return {
+        requested: true,
+        email: null,
+        status: "missing_email",
+        email_sent: false,
+      };
+    }
+
+    const pool = req.tenantPool || require("../config/db");
+    const roleResult = await pool.query(
+      "SELECT id FROM roles WHERE LOWER(role_name) = 'teacher' LIMIT 1",
+    );
+    if (!roleResult.rows[0]) {
+      return {
+        requested: true,
+        email,
+        status: "account_error",
+        email_sent: false,
+        error: "The default Teacher role is not configured.",
+      };
+    }
+
+    const existingResult = await pool.query(
+      `SELECT u.id, u.teacher_id,
+              EXISTS (
+                SELECT 1 FROM user_roles ur
+                JOIN roles r ON r.id = ur.role_id
+                WHERE ur.user_id = u.id AND LOWER(r.role_name) = 'teacher'
+              ) AS has_teacher_role
+       FROM tenant_users u
+       WHERE u.teacher_id = $1 OR LOWER(u.email) = $2
+       LIMIT 1`,
+      [teacher.id, email],
+    );
+    if (existingResult.rows.length) {
+      const existing = existingResult.rows[0];
+      const linkedTeacherAccount =
+        existing.teacher_id === teacher.id && existing.has_teacher_role;
+      return {
+        requested: true,
+        email,
+        status: linkedTeacherAccount ? "existing_account" : "account_error",
+        email_sent: false,
+        error: linkedTeacherAccount
+          ? undefined
+          : "This email or teacher profile is already linked to another account. Review it in Users & Staff.",
+      };
+    }
+
+    const temporaryPassword = crypto.randomBytes(18).toString("hex");
+    const account = await userService.createUser(
+      {
+        email,
+        password: temporaryPassword,
+        name: teacher.full_name,
+        phone: teacher.work_phone || teacher.personal_phone,
+        teacher_id: teacher.id,
+      },
+      req,
+    );
+    await userService.assignRolesToUser(
+      account.id,
+      [roleResult.rows[0].id],
+      req,
+    );
+
+    try {
+      const tenantId = req?.tenantId || req?.user?.tenantId || req?.user?.id;
+      const { getTenantById } = require("../services/auth.service");
+      const tenant = tenantId ? await getTenantById(tenantId) : null;
+      if (!tenant?.slug) {
+        throw new Error("Unable to resolve the school portal address.");
+      }
+
+      const { createTenantUserResetLink } = require("../services/studentPasswordReset.service");
+      const portalLinks = await createTenantUserResetLink(
+        pool,
+        account.id,
+        email,
+        tenant.slug,
+        { teacherPortal: true },
+      );
+      const emailService = require("../services/email.service");
+      await emailService.sendUserInvitation(req, {
+        to: email,
+        name: teacher.full_name || "Teacher",
+        tenantName: tenant.name,
+        portalName: "Teacher portal",
+        temporaryPassword,
+        passwordResetUrl: portalLinks.resetUrl,
+        loginUrl: portalLinks.loginUrl,
+      });
+      return { requested: true, email, status: "created", email_sent: true };
+    } catch (error) {
+      console.error("Teacher portal credentials email failed:", error);
+      return {
+        requested: true,
+        email,
+        status: "email_not_sent",
+        email_sent: false,
+        error: "The account was created, but the email could not be sent. Check Settings > Integrations.",
+      };
+    }
+  };
+
   _extractUploadFiles = (req) => {
     const files = req.files || {};
     const profilePhotoFile = Array.isArray(files.profile_picture_file)
@@ -191,9 +303,24 @@ class TeacherController {
       }
 
       const teacher = await teacherService.createTeacher(payload, req);
+      const provideLoginCredentials =
+        payload.provide_login_credentials === true ||
+        payload.provide_login_credentials === "true";
+      const portalLogin = provideLoginCredentials
+        ? await this._createTeacherPortalLogin(teacher, req).catch((error) => ({
+            requested: true,
+            email: teacher.work_email || teacher.personal_email || null,
+            status: "account_error",
+            email_sent: false,
+            error: error.message,
+          }))
+        : { requested: false, status: "not_requested", email_sent: false };
       return res
         .status(201)
-        .json({ message: "Teacher created", data: teacher });
+        .json({
+          message: "Teacher created",
+          data: { ...teacher, portal_login: portalLogin },
+        });
     } catch (err) {
       next(err);
     }

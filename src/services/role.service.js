@@ -267,7 +267,7 @@ class RoleService {
         },
         {
           role_name: "Teacher",
-          description: "Access to classroom and attendance features",
+          description: "Access to the teacher portal and assigned teaching features",
           is_system: true,
           permissions: [
             "dashboard.view",
@@ -277,9 +277,6 @@ class RoleService {
             "attendance.edit",
             "teacher.view",
             "teacher.download_documents",
-            "student.view",
-            "employee.view",
-            "employee.download_documents",
           ],
         },
         {
