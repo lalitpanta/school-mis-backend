@@ -74,6 +74,10 @@ class TeacherPortalService {
                OR c.section_id IN (
                  SELECT id FROM sections WHERE class_teacher_id = $1
                )
+               OR EXISTS (
+                 SELECT 1 FROM teacher_courses tc
+                 WHERE tc.teacher_id = $1 AND tc.course_id = c.id
+               )
              )
            ORDER BY cr.name, s.section_name, c.course_name`,
           [teacherId],

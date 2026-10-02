@@ -173,7 +173,15 @@ class TeacherService {
       await this.ensureTable(pool);
       const query = `SELECT * FROM teachers WHERE id = $1`;
       const result = await pool.query(query, [id]);
-      return result.rows[0] || null;
+      const teacher = result.rows[0] || null;
+      
+      // Fetch assigned courses if teacher exists
+      if (teacher) {
+        const courses = await this.getTeacherCourses(id, req);
+        teacher.courses_assigned = courses;
+      }
+      
+      return teacher;
     } catch (err) {
       throw new Error(`Failed to fetch teacher ${id}: ${err.message}`);
     }
@@ -532,6 +540,125 @@ class TeacherService {
       return null;
     const diff = to.getTime() - from.getTime();
     return Number((diff / (1000 * 60 * 60 * 24 * 365)).toFixed(2));
+  };
+
+  ensureTeacherCoursesTable = async (pool) => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS teacher_courses (
+          id SERIAL PRIMARY KEY,
+          teacher_id UUID NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
+          course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+          assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(teacher_id, course_id),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_teacher_courses_teacher_id ON teacher_courses(teacher_id);
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_teacher_courses_course_id ON teacher_courses(course_id);
+      `);
+    } catch (err) {
+      console.error("[TeacherService] Error ensuring teacher_courses table:", err.message);
+    }
+  };
+
+  getTeacherCourses = async (teacherId, req) => {
+    try {
+      const pool = req?.tenantPool || require("../config/db");
+      await this.ensureTeacherCoursesTable(pool);
+
+      const query = `
+        SELECT c.*, tc.assigned_at
+        FROM teacher_courses tc
+        JOIN courses c ON tc.course_id = c.id
+        WHERE tc.teacher_id = $1
+        ORDER BY c.course_name ASC
+      `;
+
+      const result = await pool.query(query, [teacherId]);
+      return result.rows;
+    } catch (err) {
+      throw new Error(
+        `Failed to fetch courses for teacher ${teacherId}: ${err.message}`,
+      );
+    }
+  };
+
+  assignCoursesToTeacher = async (teacherId, courseIds, req) => {
+    try {
+      const pool = req?.tenantPool || require("../config/db");
+      await this.ensureTeacherCoursesTable(pool);
+
+      // Ensure courseIds is an array
+      const ids = Array.isArray(courseIds) ? courseIds : [courseIds];
+
+      // Remove existing assignments
+      await pool.query("DELETE FROM teacher_courses WHERE teacher_id = $1", [
+        teacherId,
+      ]);
+
+      // Insert new assignments
+      for (const courseId of ids) {
+        if (courseId) {
+          await pool.query(
+            `INSERT INTO teacher_courses (teacher_id, course_id)
+             VALUES ($1, $2)
+             ON CONFLICT (teacher_id, course_id) DO NOTHING`,
+            [teacherId, courseId],
+          );
+        }
+      }
+
+      return this.getTeacherCourses(teacherId, req);
+    } catch (err) {
+      throw new Error(
+        `Failed to assign courses to teacher: ${err.message}`,
+      );
+    }
+  };
+
+  addCourseToTeacher = async (teacherId, courseId, req) => {
+    try {
+      const pool = req?.tenantPool || require("../config/db");
+      await this.ensureTeacherCoursesTable(pool);
+
+      await pool.query(
+        `INSERT INTO teacher_courses (teacher_id, course_id)
+         VALUES ($1, $2)
+         ON CONFLICT (teacher_id, course_id) DO NOTHING`,
+        [teacherId, courseId],
+      );
+
+      return this.getTeacherCourses(teacherId, req);
+    } catch (err) {
+      throw new Error(
+        `Failed to add course to teacher: ${err.message}`,
+      );
+    }
+  };
+
+  removeCourseFromTeacher = async (teacherId, courseId, req) => {
+    try {
+      const pool = req?.tenantPool || require("../config/db");
+      await this.ensureTeacherCoursesTable(pool);
+
+      await pool.query(
+        "DELETE FROM teacher_courses WHERE teacher_id = $1 AND course_id = $2",
+        [teacherId, courseId],
+      );
+
+      return this.getTeacherCourses(teacherId, req);
+    } catch (err) {
+      throw new Error(
+        `Failed to remove course from teacher: ${err.message}`,
+      );
+    }
   };
 }
 

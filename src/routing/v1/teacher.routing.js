@@ -8,6 +8,13 @@ router.get("/", teacherCTRL.list);
 router.get("/export", teacherCTRL.export);
 router.get("/:id/download/:filename", teacherCTRL.downloadDocument);
 router.get("/:id", teacherCTRL.get);
+
+// Course management endpoints
+router.get("/:id/courses", teacherCTRL.getTeacherCourses);
+router.post("/:id/courses", teacherCTRL.assignCourses);
+router.post("/:id/courses/add", teacherCTRL.addCourse);
+router.delete("/:id/courses/:courseId", teacherCTRL.removeCourse);
+
 router.post("/import", teacherUpload.single("file"), teacherCTRL.import);
 router.post(
   "/",
@@ -28,3 +35,4 @@ router.patch(
 router.delete("/:id", teacherCTRL.remove);
 
 module.exports = router;
+
