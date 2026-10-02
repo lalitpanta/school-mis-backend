@@ -1,3 +1,14 @@
+const emailService = require("./email.service");
+
+const escapeHtml = (value) =>
+  String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
+
 class ResultService {
   ensure = async (pool) => {
     const client = await pool.connect();
@@ -134,22 +145,117 @@ class ResultService {
   };
 
   publishExamFormat = async (id, isPublished, req) => {
-    try {
-      const pool = req?.tenantPool || require("../config/db");
-      await this.ensure(pool);
+    const pool = req?.tenantPool || require("../config/db");
+    await this.ensure(pool);
+    const client = await pool.connect();
+    let exam;
+    let wasPublished;
 
-      const res = await pool.query(
+    try {
+      await client.query("BEGIN");
+      const current = await client.query(
+        "SELECT * FROM exam_formats WHERE id = $1 FOR UPDATE",
+        [id],
+      );
+      if (!current.rows[0]) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      wasPublished = Boolean(current.rows[0].is_published);
+      const res = await client.query(
         `UPDATE exam_formats
          SET is_published = $1, updated_at = CURRENT_TIMESTAMP
          WHERE id = $2
          RETURNING *`,
         [isPublished, id],
       );
-
-      return res.rows[0] || null;
+      exam = res.rows[0];
+      await client.query("COMMIT");
     } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
       throw new Error(`Failed to publish exam format: ${err.message}`);
+    } finally {
+      client.release();
     }
+
+    if (!isPublished || wasPublished) {
+      return { ...exam, emailNotifications: null };
+    }
+
+    const marks = await pool.query(
+      `SELECT sm.student_id, std.full_name, std.roll_no,
+              std.student_mail, std.school_email, std.guardian_email,
+              ef.exam_type, ef.term, ef.exam_date,
+              c.name AS class_name, s.section_name,
+              es.subject_name, es.total_max_marks,
+              sm.theory_marks, sm.practical_marks, sm.total_marks,
+              sm.is_pass, sm.remarks
+       FROM student_marks sm
+       JOIN students std ON std.id = sm.student_id AND std.is_active = TRUE
+       JOIN exam_subjects es ON es.id = sm.exam_subject_id
+       JOIN exam_formats ef ON ef.id = sm.exam_format_id
+       LEFT JOIN classrooms c ON c.id = ef.class_id
+       LEFT JOIN sections s ON s.id = ef.section_id
+       WHERE sm.exam_format_id = $1
+       ORDER BY std.roll_no, es.subject_name`,
+      [id],
+    );
+
+    const students = new Map();
+    for (const row of marks.rows) {
+      if (!students.has(row.student_id)) {
+        students.set(row.student_id, { ...row, subjects: [] });
+      }
+      students.get(row.student_id).subjects.push(row);
+    }
+
+    const emailNotifications = {
+      students: students.size,
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+    };
+    for (const student of students.values()) {
+      const recipients = [
+        student.student_mail,
+        student.school_email,
+        student.guardian_email,
+      ]
+        .map((email) => String(email || "").trim())
+        .filter((email, index, all) => email && all.indexOf(email) === index);
+      if (!recipients.length) {
+        emailNotifications.skipped += 1;
+        continue;
+      }
+
+      const subjectRows = student.subjects
+        .map(
+          (subject) =>
+            `<tr><td>${escapeHtml(subject.subject_name)}</td><td>${escapeHtml(subject.theory_marks ?? "-")}</td><td>${escapeHtml(subject.practical_marks ?? "-")}</td><td>${escapeHtml(subject.total_marks ?? "-")} / ${escapeHtml(subject.total_max_marks ?? "-")}</td><td>${subject.is_pass ? "Pass" : "Needs review"}</td></tr>`,
+        )
+        .join("");
+      const html = `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2937"><h2>${escapeHtml(student.exam_type)}${student.term ? ` - ${escapeHtml(student.term)}` : ""} results</h2><p>Hello ${escapeHtml(student.full_name)},</p><p>Class: ${escapeHtml(student.class_name || "-")}${student.section_name ? `, Section: ${escapeHtml(student.section_name)}` : ""} &middot; Roll number: ${escapeHtml(student.roll_no || "-")}</p><table style="border-collapse:collapse;width:100%"><thead><tr><th align="left">Subject</th><th align="left">Theory</th><th align="left">Practical</th><th align="left">Total</th><th align="left">Status</th></tr></thead><tbody>${subjectRows}</tbody></table><p>Your published result is also available in the student portal.</p></div>`;
+
+      for (const recipient of recipients) {
+        emailNotifications.attempted += 1;
+        try {
+          await emailService.sendEmail(
+            req,
+            recipient,
+            `${student.exam_type}${student.term ? ` - ${student.term}` : ""} results`,
+            html,
+          );
+          emailNotifications.sent += 1;
+        } catch (error) {
+          emailNotifications.failed += 1;
+          console.error(`Failed to email published result to ${recipient}:`, error);
+        }
+      }
+    }
+
+    return { ...exam, emailNotifications };
   };
 
   getPublicStudentResults = async ({ tenantSlug, rollNumber, dateOfBirth }) => {
@@ -935,7 +1041,21 @@ class ResultService {
          ORDER BY subject`,
         [studentId, classroomId],
       );
-      return result.rows;
+      const examResults = await pool.query(
+        `SELECT ef.id AS exam_format_id, ef.exam_type, ef.term, ef.exam_date,
+                ef.pass_mark_percentage, ef.class_id, ef.section_id,
+                es.subject_name AS subject, es.total_max_marks,
+                sm.theory_marks, sm.practical_marks, sm.total_marks,
+                sm.is_pass, sm.remarks
+         FROM student_marks sm
+         JOIN exam_subjects es ON es.id = sm.exam_subject_id
+         JOIN exam_formats ef ON ef.id = sm.exam_format_id
+         WHERE sm.student_id = $1 AND ef.class_id = $2
+           ${publishedOnly ? "AND ef.is_published = TRUE" : ""}
+         ORDER BY ef.exam_date DESC, ef.id, es.subject_name`,
+        [studentId, classroomId],
+      );
+      return [...result.rows, ...examResults.rows];
     } catch (err) {
       throw new Error(`Failed to get student results: ${err.message}`);
     }
