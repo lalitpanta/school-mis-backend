@@ -99,7 +99,12 @@ class TeacherPortalService {
            LEFT JOIN classrooms c ON c.id = ef.class_id
            LEFT JOIN sections s ON s.id = ef.section_id
            JOIN exam_subjects es ON es.exam_format_id = ef.id
-           JOIN courses assigned_course ON assigned_course.id = es.course_id
+           JOIN courses assigned_course
+             ON assigned_course.id = es.course_id
+             OR (
+               es.course_id IS NULL
+               AND LOWER(BTRIM(assigned_course.course_name)) = LOWER(BTRIM(es.subject_name))
+             )
            JOIN teacher_courses tc
              ON tc.course_id = assigned_course.id AND tc.teacher_id = eta.teacher_id
            LEFT JOIN student_marks sm
@@ -255,7 +260,12 @@ class TeacherPortalService {
        JOIN classrooms c ON c.id = ef.class_id
        LEFT JOIN sections s ON s.id = ef.section_id
        JOIN exam_subjects es ON es.exam_format_id = ef.id
-       JOIN courses course ON course.id = es.course_id
+       JOIN courses course
+         ON course.id = es.course_id
+         OR (
+           es.course_id IS NULL
+           AND LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
+         )
        JOIN teacher_courses tc
          ON tc.course_id = course.id AND tc.teacher_id = eta.teacher_id
        LEFT JOIN student_marks sm
@@ -307,7 +317,12 @@ class TeacherPortalService {
                 COALESCE(course_section.section_name, exam_section.section_name) AS section_name
          FROM exam_subjects es
          JOIN exam_formats ef ON ef.id = es.exam_format_id
-         JOIN courses course ON course.id = es.course_id
+         JOIN courses course
+           ON course.id = es.course_id
+           OR (
+             es.course_id IS NULL
+             AND LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
+           )
          JOIN teacher_courses tc
            ON tc.course_id = course.id AND tc.teacher_id = $2
          LEFT JOIN sections course_section ON course_section.id = course.section_id
@@ -399,7 +414,12 @@ class TeacherPortalService {
                   es.total_max_marks, course.section_id
            FROM exam_subjects es
            JOIN exam_formats ef ON ef.id = es.exam_format_id
-           JOIN courses course ON course.id = es.course_id
+           JOIN courses course
+             ON course.id = es.course_id
+             OR (
+               es.course_id IS NULL
+               AND LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
+             )
            JOIN teacher_courses tc
              ON tc.course_id = course.id AND tc.teacher_id = $2
            WHERE ef.id = $1
@@ -621,7 +641,12 @@ class TeacherPortalService {
                 )::int AS incomplete_count
          FROM exam_subjects es
          JOIN exam_formats ef ON ef.id = es.exam_format_id
-         JOIN courses course ON course.id = es.course_id
+         JOIN courses course
+           ON course.id = es.course_id
+           OR (
+             es.course_id IS NULL
+             AND LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
+           )
          JOIN teacher_courses tc
            ON tc.course_id = course.id AND tc.teacher_id = $2
          CROSS JOIN students st
