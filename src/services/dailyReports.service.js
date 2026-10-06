@@ -249,7 +249,7 @@ class DailyReportsService {
       await this.ensure(pool);
 
       const params = [];
-      let where = "WHERE dr.pdf_url IS NOT NULL";
+      let where = "WHERE TRUE";
       if (date) {
         params.push(date);
         where += ` AND DATE(dr.created_at) = $${params.length}`;
@@ -258,8 +258,8 @@ class DailyReportsService {
       const sql = `
         SELECT dr.*, 
                COALESCE(s.full_name, 'Unknown Student') AS student_name,
-               COALESCE(c.class_name, c.name, 'N/A') AS class_name,
-               COALESCE(se.name, 'N/A') AS section_name,
+               COALESCE(to_jsonb(c)->>'class_name', to_jsonb(c)->>'name', 'N/A') AS class_name,
+               COALESCE(to_jsonb(se)->>'section_name', to_jsonb(se)->>'name', 'N/A') AS section_name,
                COALESCE(s.guardian_name, s.father_name, s.mother_name, 'Guardian') AS guardian_name,
                s.guardian_phone,
                s.phone_no,
@@ -343,8 +343,8 @@ class DailyReportsService {
       const sql = `
         SELECT dr.*, 
                COALESCE(s.full_name, 'Unknown Student') AS student_name,
-               COALESCE(c.class_name, c.name, 'N/A') AS class_name,
-               COALESCE(se.name, 'N/A') AS section_name,
+               COALESCE(to_jsonb(c)->>'class_name', to_jsonb(c)->>'name', 'N/A') AS class_name,
+               COALESCE(to_jsonb(se)->>'section_name', to_jsonb(se)->>'name', 'N/A') AS section_name,
                COALESCE(s.guardian_name, s.father_name, s.mother_name, 'Guardian') AS guardian_name,
                s.guardian_phone,
                s.phone_no,
