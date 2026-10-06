@@ -131,7 +131,9 @@ class TeacherPortalController {
       const data = await teacherPortalService.requestLeave(req, req.body || {});
       return res.status(201).json({ success: true, data });
     } catch (error) {
-      return res.status(400).json({ success: false, message: error.message });
+      return res
+        .status(error.statusCode || 500)
+        .json({ success: false, message: error.message });
     }
   };
 }

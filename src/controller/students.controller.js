@@ -1,4 +1,5 @@
 const studentsService = require("../services/students.service");
+const leaveService = require("../services/leave.service");
 
 class StudentsController {
   list = async (req, res, next) => {
@@ -232,13 +233,7 @@ class StudentsController {
       if (req.user?.type !== "student" || !req.user.id) {
         return res.status(403).json({ message: "Student access required" });
       }
-      const { rows } = await req.tenantPool.query(
-        `SELECT id, start_date, end_date, leave_type, reason, status, admin_reply, created_at
-         FROM leave_requests
-         WHERE user_id = $1
-         ORDER BY created_at DESC`,
-        [req.user.id],
-      );
+      const rows = await leaveService.listForUser(req.tenantPool, req.user.id);
       return res.status(200).json({
         message: "Student leave requests retrieved",
         data: rows,
@@ -253,32 +248,14 @@ class StudentsController {
       if (req.user?.type !== "student" || !req.user.id) {
         return res.status(403).json({ message: "Student access required" });
       }
-      const { start_date, end_date, leave_type, reason } = req.body || {};
-      if (
-        !start_date ||
-        !end_date ||
-        !reason?.trim() ||
-        new Date(end_date) < new Date(start_date)
-      ) {
-        return res.status(400).json({
-          message: "Valid dates and a reason are required",
-        });
-      }
-      const { rows } = await req.tenantPool.query(
-        `INSERT INTO leave_requests (user_id, start_date, end_date, leave_type, reason, status)
-         VALUES ($1, $2, $3, $4, $5, 'pending')
-         RETURNING id, start_date, end_date, leave_type, reason, status, admin_reply, created_at`,
-        [
-          req.user.id,
-          start_date,
-          end_date,
-          leave_type || "Other",
-          reason.trim(),
-        ],
+      const request = await leaveService.createRequest(
+        req.tenantPool,
+        req.user.id,
+        req.body,
       );
       return res.status(201).json({
         message: "Leave request submitted",
-        data: rows[0],
+        data: request,
       });
     } catch (err) {
       next(err);

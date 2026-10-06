@@ -1,6 +1,7 @@
 const teacherService = require("./teacher.service");
 const coursesService = require("./courses.service");
 const resultService = require("./result.service");
+const leaveService = require("./leave.service");
 
 const createRequestError = (message, statusCode) =>
   Object.assign(new Error(message), { statusCode });
@@ -51,10 +52,7 @@ class TeacherPortalService {
                  JOIN courses assigned_course ON assigned_course.id = tc.course_id
                  WHERE tc.teacher_id = $1
                    AND assigned_course.classroom_id = c.id
-                   AND (
-                     assigned_course.section_id IS NULL
-                     OR assigned_course.section_id = s.id
-                   )
+                   AND ${coursesService.sectionMatchSql("assigned_course", "s.id")}
                )
              )
            GROUP BY c.id, c.name, s.id, s.section_name
@@ -66,7 +64,26 @@ class TeacherPortalService {
                   c.periods_per_week, c.scheduled_days, c.full_marks_theory,
                   c.pass_marks_theory, c.full_marks_practical,
                   c.classroom_id, cr.name AS class_name,
-                  c.section_id, s.section_name
+                  c.section_id,
+                  COALESCE(
+                    (
+                      SELECT ARRAY_AGG(assigned_section.section_id ORDER BY assigned_section.section_id)
+                      FROM course_sections assigned_section
+                      WHERE assigned_section.course_id = c.id
+                    ),
+                    CASE WHEN c.section_id IS NULL THEN ARRAY[]::integer[]
+                         ELSE ARRAY[c.section_id] END
+                  ) AS section_ids,
+                  COALESCE(
+                    (
+                      SELECT STRING_AGG(section.section_name, ', ' ORDER BY section.section_name)
+                      FROM course_sections assigned_section
+                      JOIN sections section ON section.id = assigned_section.section_id
+                      WHERE assigned_section.course_id = c.id
+                    ),
+                    s.section_name,
+                    ''
+                  ) AS section_name
            FROM courses c
            LEFT JOIN classrooms cr ON cr.id = c.classroom_id
            LEFT JOIN sections s ON s.id = c.section_id
@@ -76,8 +93,12 @@ class TeacherPortalService {
                OR c.classroom_id IN (
                  SELECT id FROM classrooms WHERE class_teacher_id = $1
                )
-               OR c.section_id IN (
-                 SELECT id FROM sections WHERE class_teacher_id = $1
+               OR EXISTS (
+                 SELECT 1 FROM course_sections assigned_section
+                 JOIN sections teacher_section
+                   ON teacher_section.id = assigned_section.section_id
+                 WHERE assigned_section.course_id = c.id
+                   AND teacher_section.class_teacher_id = $1
                )
                OR EXISTS (
                  SELECT 1 FROM teacher_courses tc
@@ -101,11 +122,8 @@ class TeacherPortalService {
            JOIN exam_subjects es ON es.exam_format_id = ef.id
            JOIN courses assigned_course
              ON assigned_course.id = es.course_id
-             OR (
-               es.course_id IS NULL
-               AND LOWER(BTRIM(assigned_course.course_name)) = LOWER(BTRIM(es.subject_name))
-             )
-           JOIN teacher_courses tc
+             OR LOWER(BTRIM(assigned_course.course_name)) = LOWER(BTRIM(es.subject_name))
+           LEFT JOIN teacher_courses tc
              ON tc.course_id = assigned_course.id AND tc.teacher_id = eta.teacher_id
            LEFT JOIN student_marks sm
              ON sm.exam_format_id = ef.id AND sm.exam_subject_id = es.id
@@ -113,10 +131,10 @@ class TeacherPortalService {
              AND assigned_course.is_active = TRUE
              AND assigned_course.classroom_id = ef.class_id
              AND (
-               assigned_course.section_id IS NULL
-               OR ef.section_id IS NULL
-               OR assigned_course.section_id = ef.section_id
+               tc.teacher_id IS NOT NULL
+               OR assigned_course.primary_teacher_id = eta.teacher_id
              )
+             AND ${coursesService.sectionMatchSql("assigned_course", "ef.section_id")}
            GROUP BY ef.id, eta.id, c.name, s.section_name
            ORDER BY ef.exam_date DESC NULLS LAST, ef.id DESC
            LIMIT 30`,
@@ -198,11 +216,14 @@ class TeacherPortalService {
          OR EXISTS (
            SELECT 1 FROM courses assigned_course
            WHERE assigned_course.classroom_id = c.id
-             AND assigned_course.primary_teacher_id = $2
              AND (
-               assigned_course.section_id IS NULL
-               OR assigned_course.section_id = $3
+               assigned_course.primary_teacher_id = $2
+               OR EXISTS (
+                 SELECT 1 FROM teacher_courses tc
+                 WHERE tc.teacher_id = $2 AND tc.course_id = assigned_course.id
+               )
              )
+             AND ${coursesService.sectionMatchSql("assigned_course", "$3::integer")}
          )
        )`,
       [classroomId, teacherId, sectionId || null],
@@ -231,11 +252,14 @@ class TeacherPortalService {
            OR EXISTS (
              SELECT 1 FROM courses assigned_course
              WHERE assigned_course.classroom_id = $1
-               AND assigned_course.primary_teacher_id = $2
                AND (
-                 assigned_course.section_id IS NULL
-                 OR assigned_course.section_id = st.section_id
+                 assigned_course.primary_teacher_id = $2
+                 OR EXISTS (
+                   SELECT 1 FROM teacher_courses tc
+                   WHERE tc.teacher_id = $2 AND tc.course_id = assigned_course.id
+                 )
                )
+               AND ${coursesService.sectionMatchSql("assigned_course", "st.section_id")}
            )
          )
        ORDER BY s.section_name, st.roll_no NULLS LAST, st.full_name
@@ -262,11 +286,8 @@ class TeacherPortalService {
        JOIN exam_subjects es ON es.exam_format_id = ef.id
        JOIN courses course
          ON course.id = es.course_id
-         OR (
-           es.course_id IS NULL
-           AND LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
-         )
-       JOIN teacher_courses tc
+         OR LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
+       LEFT JOIN teacher_courses tc
          ON tc.course_id = course.id AND tc.teacher_id = eta.teacher_id
        LEFT JOIN student_marks sm
          ON sm.exam_format_id = ef.id AND sm.exam_subject_id = es.id
@@ -274,10 +295,10 @@ class TeacherPortalService {
          AND course.is_active = TRUE
          AND course.classroom_id = ef.class_id
          AND (
-           course.section_id IS NULL
-           OR ef.section_id IS NULL
-           OR course.section_id = ef.section_id
+           tc.teacher_id IS NOT NULL
+           OR course.primary_teacher_id = eta.teacher_id
          )
+         AND ${coursesService.sectionMatchSql("course", "ef.section_id")}
        GROUP BY ef.id, eta.id, c.name, s.section_name
        ORDER BY ef.exam_date DESC NULLS LAST, ef.id DESC`,
       [teacherId],
@@ -314,16 +335,32 @@ class TeacherPortalService {
                 es.total_max_marks, course.course_name,
                 course.course_code,
                 COALESCE(course.section_id, ef.section_id) AS section_id,
-                COALESCE(course_section.section_name, exam_section.section_name) AS section_name
+                COALESCE(
+                  (
+                    SELECT ARRAY_AGG(assigned_section.section_id ORDER BY assigned_section.section_id)
+                    FROM course_sections assigned_section
+                    WHERE assigned_section.course_id = course.id
+                  ),
+                  CASE WHEN course.section_id IS NULL THEN ARRAY[]::integer[]
+                       ELSE ARRAY[course.section_id] END
+                ) AS section_ids,
+                COALESCE(
+                  (
+                    SELECT STRING_AGG(section.section_name, ', ' ORDER BY section.section_name)
+                    FROM course_sections assigned_section
+                    JOIN sections section ON section.id = assigned_section.section_id
+                    WHERE assigned_section.course_id = course.id
+                  ),
+                  course_section.section_name,
+                  exam_section.section_name,
+                  ''
+                ) AS section_name
          FROM exam_subjects es
          JOIN exam_formats ef ON ef.id = es.exam_format_id
          JOIN courses course
            ON course.id = es.course_id
-           OR (
-             es.course_id IS NULL
-             AND LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
-           )
-         JOIN teacher_courses tc
+           OR LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
+         LEFT JOIN teacher_courses tc
            ON tc.course_id = course.id AND tc.teacher_id = $2
          LEFT JOIN sections course_section ON course_section.id = course.section_id
          LEFT JOIN sections exam_section ON exam_section.id = ef.section_id
@@ -331,10 +368,10 @@ class TeacherPortalService {
            AND course.is_active = TRUE
            AND course.classroom_id = ef.class_id
            AND (
-             course.section_id IS NULL
-             OR ef.section_id IS NULL
-             OR course.section_id = ef.section_id
+             tc.teacher_id IS NOT NULL
+             OR course.primary_teacher_id = $2
            )
+           AND ${coursesService.sectionMatchSql("course", "ef.section_id")}
          ORDER BY course.course_name, es.subject_name`,
         [examFormatId, teacherId],
       ),
@@ -411,25 +448,31 @@ class TeacherPortalService {
       const [subjectsResult, studentsResult, examResult] = await Promise.all([
         client.query(
           `SELECT es.id, es.theory_max_marks, es.practical_max_marks,
-                  es.total_max_marks, course.section_id
+                  es.total_max_marks, course.section_id,
+                  COALESCE(
+                    (
+                      SELECT ARRAY_AGG(assigned_section.section_id ORDER BY assigned_section.section_id)
+                      FROM course_sections assigned_section
+                      WHERE assigned_section.course_id = course.id
+                    ),
+                    CASE WHEN course.section_id IS NULL THEN ARRAY[]::integer[]
+                         ELSE ARRAY[course.section_id] END
+                  ) AS section_ids
            FROM exam_subjects es
            JOIN exam_formats ef ON ef.id = es.exam_format_id
            JOIN courses course
              ON course.id = es.course_id
-             OR (
-               es.course_id IS NULL
-               AND LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
-             )
-           JOIN teacher_courses tc
+             OR LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
+           LEFT JOIN teacher_courses tc
              ON tc.course_id = course.id AND tc.teacher_id = $2
            WHERE ef.id = $1
              AND course.is_active = TRUE
              AND course.classroom_id = ef.class_id
              AND (
-               course.section_id IS NULL
-               OR ef.section_id IS NULL
-               OR course.section_id = ef.section_id
-             )`,
+               tc.teacher_id IS NOT NULL
+               OR course.primary_teacher_id = $2
+             )
+             AND ${coursesService.sectionMatchSql("course", "ef.section_id")}`,
           [examFormatId, teacherId],
         ),
         client.query(
@@ -472,12 +515,17 @@ class TeacherPortalService {
         const studentId = String(mark?.student_id ?? "");
         const subject = subjectById.get(subjectId);
         const student = studentById.get(studentId);
-        const requiredSectionId = subject?.section_id || examResult.rows[0].section_id;
+        const allowedSectionIds = (subject?.section_ids || [])
+          .map(String);
         if (
           !subject ||
           !student ||
-          (requiredSectionId &&
-            String(student.section_id) !== String(requiredSectionId))
+          (allowedSectionIds.length > 0 &&
+            !allowedSectionIds.includes(String(student.section_id))) ||
+          (!allowedSectionIds.length &&
+            examResult.rows[0].section_id &&
+            String(student.section_id) !==
+              String(examResult.rows[0].section_id))
         ) {
           throw createRequestError(
             "A mark references a student or course outside your shared exam assignment.",
@@ -643,11 +691,8 @@ class TeacherPortalService {
          JOIN exam_formats ef ON ef.id = es.exam_format_id
          JOIN courses course
            ON course.id = es.course_id
-           OR (
-             es.course_id IS NULL
-             AND LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
-           )
-         JOIN teacher_courses tc
+           OR LOWER(BTRIM(course.course_name)) = LOWER(BTRIM(es.subject_name))
+         LEFT JOIN teacher_courses tc
            ON tc.course_id = course.id AND tc.teacher_id = $2
          CROSS JOIN students st
          LEFT JOIN student_marks sm
@@ -658,18 +703,15 @@ class TeacherPortalService {
            AND course.is_active = TRUE
            AND course.classroom_id = ef.class_id
            AND (
-             course.section_id IS NULL
-             OR ef.section_id IS NULL
-             OR course.section_id = ef.section_id
+             tc.teacher_id IS NOT NULL
+             OR course.primary_teacher_id = $2
            )
+           AND ${coursesService.sectionMatchSql("course", "ef.section_id")}
            AND st.is_active = TRUE
            AND (
              st.classroom_id = ef.class_id OR st.class_id = ef.class_id
            )
-           AND (
-             COALESCE(course.section_id, ef.section_id) IS NULL
-             OR st.section_id = COALESCE(course.section_id, ef.section_id)
-           )
+           AND ${coursesService.studentSectionMatchSql("course", "st", "ef")}
            `,
         [examFormatId, teacherId],
       );
@@ -701,31 +743,7 @@ class TeacherPortalService {
 
   requestLeave = async (req, data) => {
     const { pool } = await this.getContext(req);
-    const startDate = String(data.start_date || "").trim();
-    const endDate = String(data.end_date || "").trim();
-    const reason = String(data.reason || "").trim();
-    const leaveType = String(data.leave_type || "Other").trim();
-    if (!startDate || !endDate || !reason) {
-      throw new Error("Start date, end date, and reason are required.");
-    }
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(endDate) ||
-      Number.isNaN(Date.parse(startDate)) ||
-      Number.isNaN(Date.parse(endDate)) ||
-      endDate < startDate
-    ) {
-      throw new Error("Enter a valid leave date range.");
-    }
-    const result = await pool.query(
-      `INSERT INTO leave_requests
-         (user_id, start_date, end_date, leave_type, reason, status)
-       VALUES ($1, $2, $3, $4, $5, 'pending')
-       RETURNING id, start_date, end_date, leave_type, reason, status,
-                 admin_reply, created_at`,
-      [req.user.id, startDate, endDate, leaveType, reason],
-    );
-    return result.rows[0];
+    return leaveService.createRequest(pool, req.user?.id, data);
   };
 }
 

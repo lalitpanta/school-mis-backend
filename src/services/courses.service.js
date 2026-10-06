@@ -70,6 +70,21 @@ class CoursesService {
       ALTER TABLE courses
       ADD COLUMN IF NOT EXISTS section_id INTEGER REFERENCES sections(id) ON DELETE SET NULL;
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS course_sections (
+        course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        section_id INTEGER NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (course_id, section_id)
+      );
+    `);
+    await pool.query(`
+      INSERT INTO course_sections (course_id, section_id)
+      SELECT id, section_id
+      FROM courses
+      WHERE section_id IS NOT NULL
+      ON CONFLICT (course_id, section_id) DO NOTHING
+    `);
   };
 
   getClassroomSectionNameSelect = async () => {
@@ -98,6 +113,124 @@ class CoursesService {
     return "cs.section_name";
   };
 
+  normalizeSectionIds = (sectionIds) =>
+    [...new Set((Array.isArray(sectionIds)
+      ? sectionIds
+      : typeof sectionIds === "string"
+        ? sectionIds.split(",")
+        : sectionIds === null || sectionIds === undefined
+          ? []
+          : [sectionIds])
+      .filter((id) => id !== null && id !== undefined && id !== "")
+      .map(Number))];
+
+  sectionMatchSql = (courseAlias, targetSectionExpr) => `(
+    (
+      NOT EXISTS (
+        SELECT 1 FROM course_sections matched_section
+        WHERE matched_section.course_id = ${courseAlias}.id
+      )
+      AND (
+        ${courseAlias}.section_id IS NULL
+        OR ${targetSectionExpr} IS NULL
+        OR ${courseAlias}.section_id = ${targetSectionExpr}
+      )
+    )
+    OR EXISTS (
+      SELECT 1 FROM course_sections matched_section
+      WHERE matched_section.course_id = ${courseAlias}.id
+        AND (
+          ${targetSectionExpr} IS NULL
+          OR matched_section.section_id = ${targetSectionExpr}
+        )
+    )
+  )`;
+
+  studentSectionMatchSql = (courseAlias, studentAlias, examAlias) => `(
+    EXISTS (
+      SELECT 1 FROM course_sections matched_student_section
+      WHERE matched_student_section.course_id = ${courseAlias}.id
+        AND matched_student_section.section_id = ${studentAlias}.section_id
+        AND (
+          ${examAlias}.section_id IS NULL
+          OR matched_student_section.section_id = ${examAlias}.section_id
+        )
+    )
+    OR (
+      NOT EXISTS (
+        SELECT 1 FROM course_sections matched_student_section
+        WHERE matched_student_section.course_id = ${courseAlias}.id
+      )
+      AND (
+        COALESCE(${courseAlias}.section_id, ${examAlias}.section_id) IS NULL
+        OR ${studentAlias}.section_id =
+           COALESCE(${courseAlias}.section_id, ${examAlias}.section_id)
+      )
+    )
+  )`;
+
+  syncCourseSections = async (executor, courseId, classroomId, sectionIds) => {
+    const ids = this.normalizeSectionIds(sectionIds);
+    if (ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+      const error = new Error("Select valid classroom sections.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (ids.length) {
+      if (!classroomId) {
+        const error = new Error("Select a classroom before assigning sections.");
+        error.statusCode = 400;
+        throw error;
+      }
+      const validSections = await executor.query(
+        "SELECT id FROM sections WHERE id = ANY($1::int[]) AND class_id = $2",
+        [ids, classroomId],
+      );
+      if (validSections.rows.length !== ids.length) {
+        const error = new Error(
+          "One or more selected sections do not belong to the selected classroom.",
+        );
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
+    await executor.query("DELETE FROM course_sections WHERE course_id = $1", [
+      courseId,
+    ]);
+    if (ids.length) {
+      await executor.query(
+        `INSERT INTO course_sections (course_id, section_id)
+         SELECT $1, section_id FROM UNNEST($2::int[]) AS assigned(section_id)`,
+        [courseId, ids],
+      );
+    }
+  };
+
+  getSectionProjection = (courseAlias = "c") => `
+    COALESCE(
+      (
+        SELECT ARRAY_AGG(cs.section_id ORDER BY cs.section_id)
+        FROM course_sections cs
+        WHERE cs.course_id = ${courseAlias}.id
+      ),
+      CASE
+        WHEN ${courseAlias}.section_id IS NULL THEN ARRAY[]::integer[]
+        ELSE ARRAY[${courseAlias}.section_id]
+      END
+    ) AS section_ids,
+    COALESCE(
+      (
+        SELECT STRING_AGG(section.section_name, ', ' ORDER BY section.section_name)
+        FROM course_sections cs
+        JOIN sections section ON section.id = cs.section_id
+        WHERE cs.course_id = ${courseAlias}.id
+      ),
+      legacy_section.section_name,
+      ''
+    ) AS section_name
+  `;
+
   list = async (req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
@@ -112,6 +245,7 @@ class CoursesService {
           COALESCE(cr.name, '') AS classroom_name,
           COALESCE(cr.name, '') AS class_name,
           ${sectionSelect},
+          ${this.getSectionProjection("c")},
           COALESCE(section_classroom.total_capacity, cr.total_capacity, 0) AS classroom_total_capacity,
           COALESCE((
             SELECT COUNT(*)
@@ -122,14 +256,34 @@ class CoursesService {
               OR (s.classroom_id IS NULL AND st.class_id = c.classroom_id)
             )
               AND (
-                c.section_id IS NULL
+                (
+                  EXISTS (
+                    SELECT 1 FROM course_sections assigned_section
+                    WHERE assigned_section.course_id = c.id
+                  )
+                  AND (
+                    s.section_id IS NULL
+                    OR EXISTS (
+                      SELECT 1 FROM course_sections assigned_section
+                      WHERE assigned_section.course_id = c.id
+                        AND assigned_section.section_id = s.section_id
+                    )
+                  )
+                )
                 OR (
-                  s.section_id IS NULL
-                  OR ${studentSectionName} = ${classroomSectionNameExpr}
-                  OR NOT EXISTS (
-                    SELECT 1 FROM sections st2
-                    WHERE st2.class_id = c.classroom_id
-                      AND ${studentSectionName2} = ${classroomSectionNameExpr}
+                  NOT EXISTS (
+                    SELECT 1 FROM course_sections assigned_section
+                    WHERE assigned_section.course_id = c.id
+                  )
+                  AND (
+                    c.section_id IS NULL
+                    OR s.section_id IS NULL
+                    OR ${studentSectionName} = ${classroomSectionNameExpr}
+                    OR NOT EXISTS (
+                      SELECT 1 FROM sections st2
+                      WHERE st2.class_id = c.classroom_id
+                        AND ${studentSectionName2} = ${classroomSectionNameExpr}
+                    )
                   )
                 )
               )
@@ -138,6 +292,7 @@ class CoursesService {
         LEFT JOIN teachers t ON c.primary_teacher_id = t.id
         LEFT JOIN classrooms cr ON c.classroom_id = cr.id
         LEFT JOIN sections cs ON c.section_id = cs.id
+        LEFT JOIN sections legacy_section ON legacy_section.id = c.section_id
         LEFT JOIN classrooms section_classroom ON cs.class_id = section_classroom.id
         ORDER BY c.course_code ASC
       `);
@@ -162,6 +317,7 @@ class CoursesService {
           COALESCE(cr.name, '') AS classroom_name,
           COALESCE(cr.name, '') AS class_name,
           ${sectionSelect},
+          ${this.getSectionProjection("c")},
           COALESCE(section_classroom.total_capacity, cr.total_capacity, 0) AS classroom_total_capacity,
           COALESCE((
             SELECT COUNT(*)
@@ -172,14 +328,34 @@ class CoursesService {
               OR (s.classroom_id IS NULL AND st.class_id = c.classroom_id)
             )
               AND (
-                c.section_id IS NULL
+                (
+                  EXISTS (
+                    SELECT 1 FROM course_sections assigned_section
+                    WHERE assigned_section.course_id = c.id
+                  )
+                  AND (
+                    s.section_id IS NULL
+                    OR EXISTS (
+                      SELECT 1 FROM course_sections assigned_section
+                      WHERE assigned_section.course_id = c.id
+                        AND assigned_section.section_id = s.section_id
+                    )
+                  )
+                )
                 OR (
-                  s.section_id IS NULL
-                  OR ${studentSectionName} = ${classroomSectionNameExpr}
-                  OR NOT EXISTS (
-                    SELECT 1 FROM sections st2
-                    WHERE st2.class_id = c.classroom_id
-                      AND ${studentSectionName2} = ${classroomSectionNameExpr}
+                  NOT EXISTS (
+                    SELECT 1 FROM course_sections assigned_section
+                    WHERE assigned_section.course_id = c.id
+                  )
+                  AND (
+                    c.section_id IS NULL
+                    OR s.section_id IS NULL
+                    OR ${studentSectionName} = ${classroomSectionNameExpr}
+                    OR NOT EXISTS (
+                      SELECT 1 FROM sections st2
+                      WHERE st2.class_id = c.classroom_id
+                        AND ${studentSectionName2} = ${classroomSectionNameExpr}
+                    )
                   )
                 )
               )
@@ -188,6 +364,7 @@ class CoursesService {
         LEFT JOIN teachers t ON c.primary_teacher_id = t.id
         LEFT JOIN classrooms cr ON c.classroom_id = cr.id
         LEFT JOIN sections cs ON c.section_id = cs.id
+        LEFT JOIN sections legacy_section ON legacy_section.id = c.section_id
         LEFT JOIN classrooms section_classroom ON cs.class_id = section_classroom.id
         WHERE c.id = $1
       `,
@@ -203,6 +380,13 @@ class CoursesService {
     try {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensureTable(pool);
+      const sectionIds = this.normalizeSectionIds(
+        data.section_ids !== undefined
+          ? data.section_ids
+          : data.section_id
+            ? [data.section_id]
+            : [],
+      );
 
       const columns = [
         "course_name",
@@ -283,6 +467,7 @@ class CoursesService {
             ? JSON.stringify(data[col])
             : data[col] || null;
         }
+        if (col === "section_id") return sectionIds[0] || null;
         if (
           [
             "periods_per_week",
@@ -317,8 +502,24 @@ class CoursesService {
       });
 
       const q = `INSERT INTO courses (${columnNames}) VALUES (${placeholders}) RETURNING *`;
-      const res = await pool.query(q, vals);
-      return res.rows[0];
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(q, vals);
+        await this.syncCourseSections(
+          client,
+          res.rows[0].id,
+          data.classroom_id,
+          sectionIds,
+        );
+        await client.query("COMMIT");
+        return res.rows[0];
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     } catch (err) {
       throw new Error(`Failed to create course: ${err.message}`);
     }
@@ -328,6 +529,15 @@ class CoursesService {
     try {
       const pool = req?.tenantPool || require("../config/db");
       await this.ensureTable(pool);
+      const hasSectionAssignments =
+        data.section_ids !== undefined || data.section_id !== undefined;
+      const sectionIds = this.normalizeSectionIds(
+        data.section_ids !== undefined
+          ? data.section_ids
+          : data.section_id
+            ? [data.section_id]
+            : [],
+      );
 
       const fields = [];
       const values = [];
@@ -440,12 +650,41 @@ class CoursesService {
         }
       }
 
-      if (fields.length === 0) return this.get(id, req);
+      if (hasSectionAssignments) {
+        const existingSectionField = fields.findIndex((field) =>
+          field.startsWith("section_id = "),
+        );
+        if (existingSectionField >= 0) {
+          values.splice(existingSectionField, 1);
+          fields.splice(existingSectionField, 1);
+        }
+        fields.push(`section_id = $${idx++}`);
+        values.push(sectionIds[0] || null);
+      }
+      if (fields.length === 0 && !hasSectionAssignments) return this.get(id, req);
 
-      const q = `UPDATE courses SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP WHERE id = $${idx} RETURNING *`;
+      const q = `UPDATE courses SET ${fields.length ? `${fields.join(", ")}, ` : ""}updated_at = CURRENT_TIMESTAMP WHERE id = $${idx} RETURNING *`;
       values.push(id);
-      const res = await pool.query(q, values);
-      return res.rows[0];
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const res = await client.query(q, values);
+        if (res.rows[0] && hasSectionAssignments) {
+          await this.syncCourseSections(
+            client,
+            id,
+            res.rows[0].classroom_id,
+            sectionIds,
+          );
+        }
+        await client.query("COMMIT");
+        return res.rows[0] ? this.get(id, req) : undefined;
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     } catch (err) {
       throw new Error(`Failed to update course ${id}: ${err.message}`);
     }

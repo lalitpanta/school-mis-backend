@@ -1,4 +1,5 @@
 const emailService = require("./email.service");
+const coursesService = require("./courses.service");
 
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -278,6 +279,7 @@ class ResultService {
   shareExamFormat = async (id, req) => {
     const pool = req?.tenantPool || require("../config/db");
     await this.ensure(pool);
+    await coursesService.ensureTable(pool);
     await require("./teacher.service").ensureTeacherCoursesTable(pool);
 
     const client = await pool.connect();
@@ -299,20 +301,15 @@ class ResultService {
          JOIN exam_subjects es ON es.exam_format_id = ef.id
          JOIN courses c
            ON c.id = es.course_id
-           OR (
-             es.course_id IS NULL
-             AND LOWER(BTRIM(c.course_name)) = LOWER(BTRIM(es.subject_name))
-           )
-         JOIN teacher_courses tc ON tc.course_id = c.id
-         JOIN teachers t ON t.id = tc.teacher_id AND t.is_active = TRUE
+           OR LOWER(BTRIM(c.course_name)) = LOWER(BTRIM(es.subject_name))
+         LEFT JOIN teacher_courses tc ON tc.course_id = c.id
+         JOIN teachers t
+           ON t.is_active = TRUE
+          AND (t.id = tc.teacher_id OR t.id = c.primary_teacher_id)
          WHERE ef.id = $1
            AND c.is_active = TRUE
            AND c.classroom_id = ef.class_id
-           AND (
-             c.section_id IS NULL
-             OR ef.section_id IS NULL
-             OR c.section_id = ef.section_id
-           )
+           AND ${coursesService.sectionMatchSql("c", "ef.section_id")}
          GROUP BY t.id, t.full_name
          ORDER BY t.full_name`,
         [id],
