@@ -578,6 +578,7 @@ class TeacherService {
         FROM teacher_courses tc
         JOIN courses c ON tc.course_id = c.id
         WHERE tc.teacher_id = $1
+          AND c.is_active = TRUE
         ORDER BY c.course_name ASC
       `;
 
@@ -591,36 +592,60 @@ class TeacherService {
   };
 
   assignCoursesToTeacher = async (teacherId, courseIds, req) => {
+    const pool = req?.tenantPool || require("../config/db");
+    if (!Array.isArray(courseIds)) {
+      const error = new Error("course_ids must be an array.");
+      error.statusCode = 400;
+      throw error;
+    }
+    const ids = [...new Set(courseIds.map((courseId) => Number(courseId)))];
+    if (ids.some((courseId) => !Number.isInteger(courseId) || courseId <= 0)) {
+      const error = new Error("Every course assignment must use a valid course ID.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await this.ensureTeacherCoursesTable(pool);
+    const client = await pool.connect();
     try {
-      const pool = req?.tenantPool || require("../config/db");
-      await this.ensureTeacherCoursesTable(pool);
-
-      // Ensure courseIds is an array
-      const ids = Array.isArray(courseIds) ? courseIds : [courseIds];
-
-      // Remove existing assignments
-      await pool.query("DELETE FROM teacher_courses WHERE teacher_id = $1", [
-        teacherId,
-      ]);
-
-      // Insert new assignments
-      for (const courseId of ids) {
-        if (courseId) {
-          await pool.query(
-            `INSERT INTO teacher_courses (teacher_id, course_id)
-             VALUES ($1, $2)
-             ON CONFLICT (teacher_id, course_id) DO NOTHING`,
-            [teacherId, courseId],
+      await client.query("BEGIN");
+      if (ids.length) {
+        const validCourses = await client.query(
+          `SELECT id
+           FROM courses
+           WHERE id = ANY($1::int[])
+             AND is_active = TRUE`,
+          [ids],
+        );
+        if (validCourses.rows.length !== ids.length) {
+          const error = new Error(
+            "One or more selected courses are missing or inactive.",
           );
+          error.statusCode = 400;
+          throw error;
         }
       }
-
-      return this.getTeacherCourses(teacherId, req);
+      await client.query("DELETE FROM teacher_courses WHERE teacher_id = $1", [
+        teacherId,
+      ]);
+      if (ids.length) {
+        await client.query(
+          `INSERT INTO teacher_courses (teacher_id, course_id)
+           SELECT $1, course_id
+           FROM UNNEST($2::int[]) AS assigned(course_id)
+           ON CONFLICT (teacher_id, course_id) DO NOTHING`,
+          [teacherId, ids],
+        );
+      }
+      await client.query("COMMIT");
     } catch (err) {
-      throw new Error(
-        `Failed to assign courses to teacher: ${err.message}`,
-      );
+      await client.query("ROLLBACK").catch(() => {});
+      if (err.statusCode) throw err;
+      throw new Error(`Failed to assign courses to teacher: ${err.message}`);
+    } finally {
+      client.release();
     }
+    return this.getTeacherCourses(teacherId, req);
   };
 
   addCourseToTeacher = async (teacherId, courseId, req) => {

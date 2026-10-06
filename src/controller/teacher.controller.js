@@ -102,7 +102,7 @@ class TeacherController {
         loginUrl: portalLinks.loginUrl,
       });
       return { requested: true, email, status: "created", email_sent: true };
-    } catch (error) {
+    } catch {
       console.error("Teacher portal credentials email failed:", error);
       return {
         requested: true,
@@ -126,6 +126,31 @@ class TeacherController {
         : [];
 
     return { profilePhotoFile, documentFiles };
+  };
+
+  _parseJsonFields = (body) => {
+    const payload = { ...(body || {}) };
+    for (const field of [
+      "subjects_taught",
+      "classes_assigned",
+      "additional_certifications",
+      "allowances",
+      "course_ids",
+    ]) {
+      if (typeof payload[field] !== "string") continue;
+      try {
+        payload[field] = JSON.parse(payload[field]);
+      } catch (error) {
+        if (field === "course_ids") {
+          const invalidPayloadError = new Error(
+            "course_ids must be a valid JSON array.",
+          );
+          invalidPayloadError.statusCode = 400;
+          throw invalidPayloadError;
+        }
+      }
+    }
+    return payload;
   };
 
   list = async (req, res, next) => {
@@ -268,7 +293,14 @@ class TeacherController {
 
   create = async (req, res, next) => {
     try {
-      const payload = req.body || {};
+      const payload = this._parseJsonFields(req.body);
+      const courseIds = payload.course_ids;
+      delete payload.course_ids;
+      if (courseIds !== undefined && !Array.isArray(courseIds)) {
+        return res.status(400).json({
+          message: "course_ids must be an array.",
+        });
+      }
       const { profilePhotoFile, documentFiles } = this._extractUploadFiles(req);
 
       // handle profile photo upload
@@ -303,6 +335,13 @@ class TeacherController {
       }
 
       const teacher = await teacherService.createTeacher(payload, req);
+      if (Array.isArray(courseIds)) {
+        await teacherService.assignCoursesToTeacher(
+          teacher.id,
+          courseIds,
+          req,
+        );
+      }
       const provideLoginCredentials =
         payload.provide_login_credentials === true ||
         payload.provide_login_credentials === "true";
@@ -328,7 +367,15 @@ class TeacherController {
 
   update = async (req, res, next) => {
     try {
-      const payload = req.body || {};
+      const payload = this._parseJsonFields(req.body);
+      const hasCourseAssignments = Object.hasOwn(payload, "course_ids");
+      const courseIds = payload.course_ids;
+      delete payload.course_ids;
+      if (hasCourseAssignments && !Array.isArray(courseIds)) {
+        return res.status(400).json({
+          message: "course_ids must be an array.",
+        });
+      }
       const { profilePhotoFile, documentFiles } = this._extractUploadFiles(req);
       // profile photo
       if (profilePhotoFile) {
@@ -383,6 +430,13 @@ class TeacherController {
       );
       if (!teacher) {
         return res.status(404).json({ message: "Teacher not found" });
+      }
+      if (hasCourseAssignments) {
+        await teacherService.assignCoursesToTeacher(
+          req.params.id,
+          courseIds,
+          req,
+        );
       }
       return res
         .status(200)
