@@ -293,26 +293,22 @@ class EmailService {
       throw new Error("The invitation email is missing required account links.");
     }
 
-    const portalName = payload.portalName || "School portal";
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f2937;max-width:600px;margin:0 auto">
-        <h2 style="color:#111827">Your ${escapeHtml(portalName)} account is ready</h2>
+        <h2 style="color:#111827">Your school portal account is ready</h2>
         <p>Hello ${escapeHtml(payload.name || "there")},</p>
         <p>An account has been created for you${payload.tenantName ? ` at ${escapeHtml(payload.tenantName)}` : ""}.</p>
         <p><strong>Login email:</strong> ${escapeHtml(payload.to)}</p>
-        ${payload.temporaryPassword ? `<p><strong>Temporary password:</strong> ${escapeHtml(payload.temporaryPassword)}</p><p>Change your password after signing in, or use the secure setup link below.</p>` : ""}
         <p><a href="${escapeHtml(payload.passwordResetUrl)}" style="display:inline-block;padding:12px 18px;background:#4f46e5;color:#fff;text-decoration:none;border-radius:6px">Set your password</a></p>
         <p>This one-time setup link expires in 60 minutes.</p>
-        <p><a href="${escapeHtml(payload.loginUrl)}">Open the ${escapeHtml(portalName.toLowerCase())}</a></p>
+        <p><a href="${escapeHtml(payload.loginUrl)}">Open the school portal</a></p>
         <p>If you were not expecting this account, contact your school administrator.</p>
       </div>`;
 
     await this.sendEmail(
       req,
       payload.to,
-      payload.temporaryPassword
-        ? `Your ${portalName.toLowerCase()} login credentials`
-        : `Set up your ${portalName.toLowerCase()} account`,
+      "Set up your school portal account",
       html,
     );
     return true;

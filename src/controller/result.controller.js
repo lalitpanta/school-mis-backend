@@ -481,6 +481,23 @@ class ResultController {
     }
   };
 
+  shareExamFormat = async (req, res) => {
+    try {
+      const result = await resultService.shareExamFormat(req.params.id, req);
+      return res.status(200).json({
+        success: true,
+        message: "Exam format shared with assigned teachers.",
+        data: result,
+      });
+    } catch (err) {
+      console.error("Error sharing exam format:", err);
+      return res.status(err.statusCode || 500).json({
+        success: false,
+        message: err.message || "Unable to share exam format.",
+      });
+    }
+  };
+
   getTeacherClassrooms = async (req, res, next) => {
     try {
       const userId = req.user?.id;

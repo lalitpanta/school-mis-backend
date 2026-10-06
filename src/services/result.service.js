@@ -72,6 +72,20 @@ class ResultService {
         )
       `);
 
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS exam_teacher_assignments (
+          id SERIAL PRIMARY KEY,
+          exam_format_id INTEGER NOT NULL REFERENCES exam_formats(id) ON DELETE CASCADE,
+          teacher_id UUID NOT NULL,
+          assigned_by UUID,
+          status VARCHAR(20) NOT NULL DEFAULT 'assigned',
+          submitted_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (exam_format_id, teacher_id)
+        )
+      `);
+
       // Create indexes for performance
       await client.query(
         `CREATE INDEX IF NOT EXISTS idx_exam_formats_class ON exam_formats(class_id)`,
@@ -90,6 +104,9 @@ class ResultService {
       );
       await client.query(
         `CREATE INDEX IF NOT EXISTS idx_student_marks_student ON student_marks(student_id)`,
+      );
+      await client.query(
+        `CREATE INDEX IF NOT EXISTS idx_exam_teacher_assignments_teacher ON exam_teacher_assignments(teacher_id)`,
       );
 
       // Drop old foreign key constraints if they exist, to allow linking to the new classrooms tables
@@ -256,6 +273,70 @@ class ResultService {
     }
 
     return { ...exam, emailNotifications };
+  };
+
+  shareExamFormat = async (id, req) => {
+    const pool = req?.tenantPool || require("../config/db");
+    await this.ensure(pool);
+    await require("./teacher.service").ensureTeacherCoursesTable(pool);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const examResult = await client.query(
+        "SELECT id FROM exam_formats WHERE id = $1 FOR UPDATE",
+        [id],
+      );
+      if (!examResult.rows.length) {
+        const error = new Error("Exam format not found.");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const teachersResult = await client.query(
+        `SELECT t.id, t.full_name, COUNT(DISTINCT c.id)::int AS course_count
+         FROM exam_formats ef
+         JOIN exam_subjects es ON es.exam_format_id = ef.id
+         JOIN courses c ON c.id = es.course_id
+         JOIN teacher_courses tc ON tc.course_id = c.id
+         JOIN teachers t ON t.id = tc.teacher_id AND t.is_active = TRUE
+         WHERE ef.id = $1
+           AND c.is_active = TRUE
+           AND c.classroom_id = ef.class_id
+           AND (
+             c.section_id IS NULL
+             OR ef.section_id IS NULL
+             OR c.section_id = ef.section_id
+           )
+         GROUP BY t.id, t.full_name
+         ORDER BY t.full_name`,
+        [id],
+      );
+      if (!teachersResult.rows.length) {
+        const error = new Error(
+          "This exam has no courses assigned to active teachers for its class and section. Add course marks and teacher assignments, then share it again.",
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+
+      for (const teacher of teachersResult.rows) {
+        await client.query(
+          `INSERT INTO exam_teacher_assignments
+             (exam_format_id, teacher_id, assigned_by)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (exam_format_id, teacher_id) DO NOTHING`,
+          [id, teacher.id, req?.user?.id || null],
+        );
+      }
+      await client.query("COMMIT");
+      return { teachers: teachersResult.rows };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   };
 
   getPublicStudentResults = async ({ tenantSlug, rollNumber, dateOfBirth }) => {

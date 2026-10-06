@@ -1045,7 +1045,6 @@ async function staffLogin(tenantSlug, email, password, req) {
       const userResult = await tenantDbClient.query(
         `SELECT 
           u.id, 
-          u.teacher_id,
           u.email, 
           u.name,
           u.password_hash, 
@@ -1284,7 +1283,6 @@ async function staffLogin(tenantSlug, email, password, req) {
         {
           sid: sessionId,
           id: user.id,
-          teacherId: user.teacher_id || null,
           email: user.email,
           name: user.name || email.split("@")[0],
           tenantId: tenant.id,
@@ -1310,7 +1308,6 @@ async function staffLogin(tenantSlug, email, password, req) {
         token,
         user: {
           id: user.id,
-          teacherId: user.teacher_id || null,
           email: user.email,
           name: user.name || email.split("@")[0],
           roles: roles,

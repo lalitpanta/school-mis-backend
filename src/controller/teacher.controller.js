@@ -302,15 +302,7 @@ class TeacherController {
         payload.documents = docs;
       }
 
-      const courseIds = payload.course_ids || payload.courses_assigned;
-
       const teacher = await teacherService.createTeacher(payload, req);
-      
-      // Assign courses to the newly created teacher
-      if (courseIds && courseIds.length > 0) {
-        await teacherService.assignCoursesToTeacher(teacher.id, courseIds, req);
-      }
-
       const provideLoginCredentials =
         payload.provide_login_credentials === true ||
         payload.provide_login_credentials === "true";
@@ -338,20 +330,6 @@ class TeacherController {
     try {
       const payload = req.body || {};
       const { profilePhotoFile, documentFiles } = this._extractUploadFiles(req);
-      
-      // Handle courses assignment
-      if (payload.course_ids || payload.courses_assigned) {
-        const courseIds = payload.course_ids || payload.courses_assigned;
-        await teacherService.assignCoursesToTeacher(
-          req.params.id,
-          courseIds,
-          req,
-        );
-        // Remove from payload to prevent it from being saved to teacher table
-        delete payload.course_ids;
-        delete payload.courses_assigned;
-      }
-      
       // profile photo
       if (profilePhotoFile) {
         payload.profile_photo_url = `/uploads/teachers/${profilePhotoFile.filename}`;
@@ -423,90 +401,6 @@ class TeacherController {
       return res
         .status(200)
         .json({ message: "Teacher deleted", data: removed });
-    } catch (err) {
-      next(err);
-    }
-  };
-
-  getTeacherCourses = async (req, res, next) => {
-    try {
-      const courses = await teacherService.getTeacherCourses(
-        req.params.id,
-        req,
-      );
-      return res.status(200).json({
-        message: "Teacher courses retrieved",
-        data: courses,
-      });
-    } catch (err) {
-      next(err);
-    }
-  };
-
-  assignCourses = async (req, res, next) => {
-    try {
-      const { course_ids } = req.body || {};
-      if (!Array.isArray(course_ids)) {
-        return res.status(400).json({
-          message: "course_ids must be an array",
-        });
-      }
-
-      const courses = await teacherService.assignCoursesToTeacher(
-        req.params.id,
-        course_ids,
-        req,
-      );
-      return res.status(200).json({
-        message: "Courses assigned to teacher",
-        data: courses,
-      });
-    } catch (err) {
-      next(err);
-    }
-  };
-
-  addCourse = async (req, res, next) => {
-    try {
-      const { course_id } = req.body || {};
-      if (!course_id) {
-        return res.status(400).json({
-          message: "course_id is required",
-        });
-      }
-
-      const courses = await teacherService.addCourseToTeacher(
-        req.params.id,
-        course_id,
-        req,
-      );
-      return res.status(200).json({
-        message: "Course added to teacher",
-        data: courses,
-      });
-    } catch (err) {
-      next(err);
-    }
-  };
-
-  removeCourse = async (req, res, next) => {
-    try {
-      const { courseId } = req.params;
-      if (!courseId) {
-        return res.status(400).json({
-          message: "courseId is required",
-        });
-      }
-
-      const courses = await teacherService.removeCourseFromTeacher(
-        req.params.id,
-        courseId,
-        req,
-      );
-      return res.status(200).json({
-        message: "Course removed from teacher",
-        data: courses,
-      });
     } catch (err) {
       next(err);
     }

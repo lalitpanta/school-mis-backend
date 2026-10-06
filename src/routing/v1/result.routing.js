@@ -60,6 +60,13 @@ router.get("/exam-formats", resultController.getExamFormats);
 router.get("/exam-formats/:id", resultController.getExamFormatById);
 
 /**
+ * @route   POST /v1/results/exam-formats/:id/share
+ * @desc    Share an exam format with teachers assigned to its courses
+ * @access  Private (tenant administrator)
+ */
+router.post("/exam-formats/:id/share", resultController.shareExamFormat);
+
+/**
  * @route   PATCH /v1/results/exam-formats/:id/publish
  * @desc    Publish or unpublish an exam format
  * @access  Private (staff/tenant/admin)

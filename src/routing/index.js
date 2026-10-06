@@ -12,7 +12,6 @@ const {
   attachTenantContext,
 } = require("../middleware/auth.middleware");
 const resultController = require("../controller/result.controller");
-const teacherPortalController = require("../controller/teacherPortal.controller");
 const auditCTRL = require("../controller/audit.controller");
 const auditMutationRequest = require("../middleware/audit.middleware");
 
@@ -118,6 +117,14 @@ masterRouter.use(
   requireTenant,
   attachTenantContext,
   require("./v1/teacher.routing"),
+);
+
+masterRouter.use(
+  "/teacher-portal",
+  authenticateToken,
+  attachTenantContext,
+  requireTenantUser,
+  require("./v1/teacherPortal.routing"),
 );
 
 masterRouter.use(
@@ -232,17 +239,7 @@ masterRouter.use(
   authenticateToken,
   attachTenantContext,
   requireTenantUser,
-  teacherPortalController.rejectTeacher,
   require("./v1/students.routing"),
-);
-
-masterRouter.use(
-  "/teacher-portal",
-  authenticateToken,
-  attachTenantContext,
-  requireTenantUser,
-  teacherPortalController.requireTeacher,
-  require("./v1/teacherPortal.routing"),
 );
 
 masterRouter.use(
@@ -250,7 +247,6 @@ masterRouter.use(
   authenticateToken,
   attachTenantContext,
   requireTenantUser,
-  teacherPortalController.rejectTeacher,
   require("./v1/fee.routing"),
 );
 

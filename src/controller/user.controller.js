@@ -63,15 +63,6 @@ class UserController {
       let portalLinks = null;
       let invitationEmailSent = false;
       let invitationEmailError = null;
-      const teacherPortal = Boolean(
-        teacher_id &&
-          userWithRoles.roles?.some(
-            (role) =>
-              String(typeof role === "string" ? role : role?.role_name || "")
-                .trim()
-                .toLowerCase() === "teacher",
-          ),
-      );
       try {
         const tenantId = req?.tenantId || req?.user?.tenantId || req?.user?.id;
         const { getTenantById } = require("../services/auth.service");
@@ -89,14 +80,12 @@ class UserController {
           userWithRoles.id,
           userWithRoles.email,
           tenant.slug,
-          { teacherPortal },
         );
         const emailService = require("../services/email.service");
         invitationEmailSent = await emailService.sendUserInvitation(req, {
           to: userWithRoles.email,
           name: userWithRoles.name || "User",
           tenantName: tenant.name,
-          portalName: teacherPortal ? "Teacher portal" : "School portal",
           passwordResetUrl: portalLinks.resetUrl,
           loginUrl: portalLinks.loginUrl,
         });

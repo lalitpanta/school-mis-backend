@@ -63,6 +63,69 @@ class TeacherPortalController {
     }
   };
 
+  getAssignedExams = async (req, res, next) => {
+    try {
+      const exams = await teacherPortalService.getAssignedExams(req);
+      return res.status(200).json({ success: true, data: exams });
+    } catch (error) {
+      return next(error);
+    }
+  };
+
+  getAssignedExam = async (req, res, next) => {
+    try {
+      const exam = await teacherPortalService.getAssignedExam(
+        req.params.examFormatId,
+        req,
+      );
+      return res.status(200).json({ success: true, data: exam });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Unable to load this exam format.",
+      });
+    }
+  };
+
+  saveAssignedExamMarks = async (req, res, next) => {
+    try {
+      const result = await teacherPortalService.saveAssignedExamMarks(
+        req.params.examFormatId,
+        req.body,
+        req,
+      );
+      return res.status(200).json({
+        success: true,
+        message: "Marks saved successfully.",
+        data: result,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Unable to save marks.",
+      });
+    }
+  };
+
+  submitAssignedExam = async (req, res, next) => {
+    try {
+      const result = await teacherPortalService.submitAssignedExam(
+        req.params.examFormatId,
+        req,
+      );
+      return res.status(200).json({
+        success: true,
+        message: "Marks submitted successfully.",
+        data: result,
+      });
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || "Unable to submit marks.",
+      });
+    }
+  };
+
   requestLeave = async (req, res, next) => {
     try {
       const data = await teacherPortalService.requestLeave(req, req.body || {});
