@@ -589,6 +589,7 @@ class CoursesService {
       ];
 
       for (const key of allowed) {
+        if (key === "section_id" && hasSectionAssignments) continue;
         if (data[key] !== undefined) {
           if (
             key === "category_tags" ||
@@ -651,13 +652,6 @@ class CoursesService {
       }
 
       if (hasSectionAssignments) {
-        const existingSectionField = fields.findIndex((field) =>
-          field.startsWith("section_id = "),
-        );
-        if (existingSectionField >= 0) {
-          values.splice(existingSectionField, 1);
-          fields.splice(existingSectionField, 1);
-        }
         fields.push(`section_id = $${idx++}`);
         values.push(sectionIds[0] || null);
       }
