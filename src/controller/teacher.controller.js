@@ -392,6 +392,84 @@ class TeacherController {
     }
   };
 
+  getTeacherCourses = async (req, res, next) => {
+    try {
+      const courses = await teacherService.getTeacherCourses(req.params.id, req);
+      return res.status(200).json({
+        success: true,
+        message: "Teacher courses retrieved",
+        data: courses,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  assignCourses = async (req, res, next) => {
+    try {
+      const { course_ids } = req.body || {};
+      if (!Array.isArray(course_ids)) {
+        return res.status(400).json({
+          success: false,
+          message: "course_ids must be an array.",
+        });
+      }
+      const courses = await teacherService.assignCoursesToTeacher(
+        req.params.id,
+        course_ids,
+        req,
+      );
+      return res.status(200).json({
+        success: true,
+        message: "Teacher courses assigned",
+        data: courses,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  addCourse = async (req, res, next) => {
+    try {
+      const { course_id } = req.body || {};
+      if (!course_id) {
+        return res.status(400).json({
+          success: false,
+          message: "course_id is required.",
+        });
+      }
+      const courses = await teacherService.addCourseToTeacher(
+        req.params.id,
+        course_id,
+        req,
+      );
+      return res.status(200).json({
+        success: true,
+        message: "Course added to teacher",
+        data: courses,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  removeCourse = async (req, res, next) => {
+    try {
+      const courses = await teacherService.removeCourseFromTeacher(
+        req.params.id,
+        req.params.courseId,
+        req,
+      );
+      return res.status(200).json({
+        success: true,
+        message: "Course removed from teacher",
+        data: courses,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  };
+
   remove = async (req, res, next) => {
     try {
       const removed = await teacherService.deleteTeacher(req.params.id, req);
