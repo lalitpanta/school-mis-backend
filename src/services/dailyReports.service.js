@@ -2,6 +2,15 @@ const noticesService = require("./notices.service");
 const whatsappService = require("./whatsapp.service");
 const PDFGeneratorService = require("./pdfGenerator.service");
 const settingsService = require("./settings.service");
+const emailService = require("./email.service");
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
 class DailyReportsService {
   ensure = async (pool) => {
@@ -24,7 +33,7 @@ class DailyReportsService {
         report JSONB NOT NULL,
         pdf_url VARCHAR(500),
         sent BOOLEAN DEFAULT FALSE,
-        sent_to VARCHAR(50),
+        sent_to VARCHAR(255),
         created_by UUID,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -43,6 +52,9 @@ class DailyReportsService {
         ADD COLUMN IF NOT EXISTS created_by UUID,
         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
     `);
+    await pool.query(
+      "ALTER TABLE daily_reports ALTER COLUMN sent_to TYPE VARCHAR(255)",
+    );
   };
 
   // Templates
@@ -320,6 +332,82 @@ class DailyReportsService {
     } catch (err) {
       throw new Error(`Failed to bulk send reports: ${err.message}`);
     }
+  };
+
+  sendReportEmail = async (id, req) => {
+    const pool = req?.tenantPool || require("../config/db");
+    await this.ensure(pool);
+
+    const result = await pool.query(
+      `SELECT dr.id, dr.report, dr.pdf_url, dr.created_at,
+              s.full_name, s.guardian_email,
+              COALESCE(s.guardian_name, s.father_name, s.mother_name, 'Guardian') AS guardian_name,
+              t.name AS template_name, t.template
+       FROM daily_reports dr
+       LEFT JOIN students s ON s.id = dr.student_id
+       LEFT JOIN daily_report_templates t ON t.id = dr.template_id
+       WHERE dr.id = $1`,
+      [id],
+    );
+    const savedReport = result.rows[0];
+    if (!savedReport) {
+      const error = new Error("Daily report not found.");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const recipient = String(savedReport.guardian_email || "").trim();
+    if (!recipient) {
+      const error = new Error("Guardian email not found for this student.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
+      const error = new Error("The student's guardian email address is invalid.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const report = savedReport.report || {};
+    const data = report.data || {};
+    const sections = savedReport.template?.sections || [];
+    const detailRows = sections
+      .flatMap((section, sectionIndex) =>
+        (section.fields || []).map((field, fieldIndex) => {
+          const value = data[sectionIndex]?.[fieldIndex];
+          return value === null || value === undefined || value === ""
+            ? null
+            : `<tr><td style="padding:8px;border:1px solid #d1d5db">${escapeHtml(field.label || "Report detail")}</td><td style="padding:8px;border:1px solid #d1d5db">${escapeHtml(value)}</td></tr>`;
+        }),
+      )
+      .filter(Boolean)
+      .join("");
+    const pdfLink = savedReport.pdf_url
+      ? `<p><a href="${escapeHtml(savedReport.pdf_url)}">View or download the daily report</a></p>`
+      : "";
+    const html = `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2937">
+        <h2>${escapeHtml(savedReport.template_name || report.template_name || "Daily Report")}</h2>
+        <p>Hello ${escapeHtml(savedReport.guardian_name || "Guardian")},</p>
+        <p>Daily report for <strong>${escapeHtml(savedReport.full_name || "student")}</strong>.</p>
+        ${report.summary ? `<p>${escapeHtml(report.summary)}</p>` : ""}
+        ${detailRows ? `<table style="border-collapse:collapse;width:100%"><tbody>${detailRows}</tbody></table>` : ""}
+        ${pdfLink}
+      </div>`;
+
+    await emailService.sendEmail(
+      req,
+      recipient,
+      `Daily Report for ${savedReport.full_name || "student"}: ${savedReport.template_name || report.template_name || "Report"}`,
+      html,
+    );
+
+    await pool.query(
+      "UPDATE daily_reports SET sent = TRUE, sent_to = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+      [recipient, id],
+    );
+
+    return { report_id: savedReport.id, sent_to: recipient };
   };
 
   listReports = async (req, studentId = null, date = null) => {

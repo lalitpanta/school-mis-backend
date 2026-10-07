@@ -11,6 +11,7 @@ router.delete('/templates/:id', dailyReportsController.deleteTemplate);
 // Reports
 router.post('/', dailyReportsController.createReport);
 router.post('/bulk-send', dailyReportsController.bulkSendReports);
+router.post('/:id/send-email', dailyReportsController.sendReportEmail);
 router.get('/', dailyReportsController.listReports);
 router.delete('/:id', dailyReportsController.deleteReport);
 

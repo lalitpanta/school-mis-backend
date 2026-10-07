@@ -81,6 +81,21 @@ const dailyReportsController = {
     }
   },
 
+  async sendReportEmail(req, res) {
+    try {
+      const result = await dailyReportsService.sendReportEmail(
+        req.params.id,
+        req,
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      console.error("Failed to send daily report email:", err);
+      res
+        .status(err.statusCode || 500)
+        .json({ success: false, message: err.message });
+    }
+  },
+
   async listReports(req, res) {
     try {
       const requestedStudentId = req.query.studentId || null;
