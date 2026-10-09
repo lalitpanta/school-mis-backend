@@ -270,10 +270,12 @@ class UserController {
   toggleUserActive = async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { isActive } = req.body;
+      const { isActive } = req.body || {};
 
-      if (isActive === undefined) {
-        return res.status(400).json({ error: "isActive status is required" });
+      if (typeof isActive !== "boolean") {
+        return res
+          .status(400)
+          .json({ error: "isActive must be a boolean value" });
       }
 
       const user = await userService.toggleUserActive(id, isActive, req);

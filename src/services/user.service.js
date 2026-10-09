@@ -438,7 +438,8 @@ const updateUser = async (userId, userData, req) => {
       throw new Error("User not found");
     }
 
-    const updatedUser = result.rows[0];
+    const { previous_is_active: previousStatus, ...updatedUser } =
+      result.rows[0];
     await logUserEvent(req, {
       category: "user_roles",
       action: "update_user",
@@ -765,19 +766,27 @@ const deleteUser = async (userId, req) => {
  */
 const toggleUserActive = async (userId, isActive, req) => {
   try {
+    if (typeof isActive !== "boolean") {
+      throw new Error("User active status must be a boolean");
+    }
     const pool = req?.tenantPool || require("../config/db");
 
     const query = `
-      UPDATE tenant_users 
-      SET is_active = $1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-      RETURNING id, email, is_active, created_at, updated_at
+      WITH current_user AS (
+        SELECT id, is_active
+        FROM tenant_users
+        WHERE id = $2
+      ),
+      updated_user AS (
+        UPDATE tenant_users
+        SET is_active = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+        RETURNING id, email, is_active, created_at, updated_at
+      )
+      SELECT updated_user.*, current_user.is_active AS previous_is_active
+      FROM updated_user
+      LEFT JOIN current_user ON current_user.id = updated_user.id
     `;
-
-    const existingUserResult = await pool.query(
-      "SELECT id, email, is_active FROM tenant_users WHERE id = $1",
-      [userId],
-    );
 
     const result = await pool.query(query, [isActive, userId]);
 
@@ -797,7 +806,7 @@ const toggleUserActive = async (userId, isActive, req) => {
       tenantName: req?.tenantName || null,
       metadata: {
         userId: updatedUser.id,
-        previousStatus: existingUserResult.rows[0]?.is_active ?? null,
+        previousStatus,
         newStatus: updatedUser.is_active,
       },
     });
