@@ -1311,6 +1311,7 @@ async function staffLogin(tenantSlug, email, password, req) {
           id: user.id,
           email: user.email,
           name: user.name || email.split("@")[0],
+          tenantId: tenant.id,
           roles: roles,
           permissions: permissions,
           modules: finalModules,

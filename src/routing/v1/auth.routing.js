@@ -28,6 +28,7 @@ const {
 const {
   authenticateToken,
   requireAdmin,
+  requireSettingsPermission,
   attachTenantContext,
 } = require("../../middleware/auth.middleware");
 const activeSessionCTRL = require("../../controller/activeSession.controller");
@@ -145,11 +146,32 @@ router.delete(
   deleteTenantController,
 );
 
-// Download tenant backup as JSON (admin only)
+// Admins can back up any tenant; tenants and authorized staff can back up their own.
+function requireTenantBackupScope(req, res, next) {
+  if (req.user?.type === "system_admin") return next();
+
+  const userTenantId =
+    req.user?.type === "tenant"
+      ? req.user.id
+      : req.user?.type === "staff"
+        ? req.user.tenantId
+        : null;
+
+  if (!userTenantId || String(userTenantId) !== String(req.params.id)) {
+    return res.status(403).json({
+      success: false,
+      message: "You can only download a backup for your own tenant.",
+    });
+  }
+  return next();
+}
+
 router.get(
   "/tenant/:id/backup",
   authenticateToken,
-  requireAdmin,
+  attachTenantContext,
+  requireSettingsPermission("settings.backup"),
+  requireTenantBackupScope,
   backupTenantController,
 );
 
