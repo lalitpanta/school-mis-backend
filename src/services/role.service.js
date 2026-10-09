@@ -1,13 +1,56 @@
 const { getTenantPool } = require("../config/tenantDb");
 const { recordEntityAudit } = require("./auditLog.service");
+const activeColumnEnsures = new WeakMap();
 
 class RoleService {
+  ensureRoleActiveColumn = async (pool) => {
+    if (!activeColumnEnsures.has(pool)) {
+      const ensurePromise = pool
+        .query(
+          "ALTER TABLE roles ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+        )
+        .catch((error) => {
+          activeColumnEnsures.delete(pool);
+          throw error;
+        });
+      activeColumnEnsures.set(pool, ensurePromise);
+    }
+    await activeColumnEnsures.get(pool);
+  };
+
+  validateRoleAssignments = async (pool, userId, roleIds) => {
+    await this.ensureRoleActiveColumn(pool);
+    const uniqueRoleIds = [...new Set(roleIds)];
+    if (uniqueRoleIds.length === 0) return;
+    const [rolesResult, assignedResult] = await Promise.all([
+      pool.query(
+        "SELECT id, is_active FROM roles WHERE id = ANY($1::uuid[])",
+        [uniqueRoleIds],
+      ),
+      pool.query("SELECT role_id FROM user_roles WHERE user_id = $1", [userId]),
+    ]);
+    const assignedIds = new Set(
+      assignedResult.rows.map((row) => String(row.role_id)),
+    );
+    const rolesById = new Map(
+      rolesResult.rows.map((role) => [String(role.id), role]),
+    );
+    const invalidIds = uniqueRoleIds.filter((id) => {
+      const role = rolesById.get(String(id));
+      return !role || (!role.is_active && !assignedIds.has(String(id)));
+    });
+    if (invalidIds.length) {
+      throw new Error("New role assignments must reference active roles");
+    }
+  };
+
   /**
    * Create a new role
    */
   createRole = async (roleData, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      await this.ensureRoleActiveColumn(pool);
       const permissions = Array.isArray(roleData.permissions)
         ? roleData.permissions
         : [];
@@ -54,6 +97,7 @@ class RoleService {
   getAllRoles = async (req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      await this.ensureRoleActiveColumn(pool);
       const query = `
         SELECT r.*,
           json_array_length(COALESCE(r.permissions, '[]'::json)) as permission_count
@@ -73,6 +117,7 @@ class RoleService {
   getRoleById = async (roleId, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      await this.ensureRoleActiveColumn(pool);
       const query = `SELECT * FROM roles WHERE id = $1`;
       const result = await pool.query(query, [roleId]);
       return result.rows[0] || null;
@@ -87,6 +132,7 @@ class RoleService {
   getRoleWithPermissions = async (roleId, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      await this.ensureRoleActiveColumn(pool);
       const query = `SELECT * FROM roles WHERE id = $1`;
       const result = await pool.query(query, [roleId]);
       return result.rows[0] || null;
@@ -101,6 +147,7 @@ class RoleService {
   updateRole = async (roleId, updateData, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      await this.ensureRoleActiveColumn(pool);
       const permissions = Array.isArray(updateData.permissions)
         ? updateData.permissions
         : undefined;
@@ -109,14 +156,16 @@ class RoleService {
         SET role_name = COALESCE($1, role_name),
             description = COALESCE($2, description),
             permissions = COALESCE($3, permissions),
+            is_active = COALESCE($4, is_active),
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = $4
+        WHERE id = $5
         RETURNING *
       `;
       const result = await pool.query(query, [
         updateData.role_name,
         updateData.description,
         permissions !== undefined ? JSON.stringify(permissions) : null,
+        typeof updateData.is_active === "boolean" ? updateData.is_active : null,
         roleId,
       ]);
       const updatedRole = result.rows[0] || null;
@@ -154,6 +203,7 @@ class RoleService {
   deleteRole = async (roleId, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      await this.ensureRoleActiveColumn(pool);
       const existingRole = await pool.query(
         "SELECT id, role_name FROM roles WHERE id = $1",
         [roleId],
@@ -193,6 +243,7 @@ class RoleService {
   addPermissionsToRole = async (roleId, permissions, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
+      await this.ensureRoleActiveColumn(pool);
       const permArray = Array.isArray(permissions) ? permissions : [];
       const query = `
         UPDATE roles

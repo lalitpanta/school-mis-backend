@@ -85,7 +85,12 @@ class ClassroomService {
       const fields = [];
       const values = [];
       let idx = 1;
-      const allowed = ["name", "total_capacity", "number_of_sections"];
+      const allowed = [
+        "name",
+        "total_capacity",
+        "number_of_sections",
+        "is_active",
+      ];
       for (const k of allowed) {
         if (data[k] !== undefined) {
           fields.push(`${k} = $${idx++}`);

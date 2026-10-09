@@ -64,9 +64,16 @@ class RoleController {
   updateRole = async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { role_name, description, permissions } = req.body;
+      const { role_name, description, permissions, is_active } = req.body;
+      if (is_active !== undefined && typeof is_active !== "boolean") {
+        return res.status(400).json({ error: "is_active must be a boolean" });
+      }
 
-      const result = await roleService.updateRole(id, { role_name, description, permissions }, req);
+      const result = await roleService.updateRole(
+        id,
+        { role_name, description, permissions, is_active },
+        req,
+      );
 
       if (!result) {
         return res.status(404).json({ error: "Role not found" });

@@ -112,10 +112,135 @@ function requireTenantUser(req, res, next) {
   next();
 }
 
+async function refreshStaffRoleAccess(req) {
+  if (req.user?.type !== "staff") return;
+  if (!req.tenantPool) {
+    throw new Error("Tenant database is unavailable for staff authorization");
+  }
+  if (!req.roleAccessRefresh) {
+    req.roleAccessRefresh = (async () => {
+      const roleService = require("../services/role.service");
+      await roleService.ensureRoleActiveColumn(req.tenantPool);
+      const result = await req.tenantPool.query(
+        `SELECT u.authority_mode, u.module_access, r.role_name, r.permissions
+         FROM tenant_users u
+         LEFT JOIN user_roles ur ON ur.user_id = u.id
+         LEFT JOIN roles r ON r.id = ur.role_id AND r.is_active = TRUE
+         WHERE u.id = $1`,
+        [req.user.id],
+      );
+      if (!result.rows.length) {
+        throw new Error("Staff user no longer exists");
+      }
+
+      const roles = [];
+      const rolePermissions = new Set();
+      for (const row of result.rows) {
+        if (row.role_name) roles.push(row.role_name);
+        let permissions = row.permissions;
+        if (typeof permissions === "string") {
+          try {
+            permissions = JSON.parse(permissions);
+          } catch (error) {
+            throw new Error(`Invalid role permissions data: ${error.message}`);
+          }
+        }
+        if (Array.isArray(permissions)) {
+          permissions.forEach((permission) =>
+            rolePermissions.add(String(permission)),
+          );
+        } else if (permissions != null) {
+          throw new Error("Role permissions must be stored as an array");
+        }
+      }
+
+      let directAccess = result.rows[0].module_access || [];
+      if (typeof directAccess === "string") {
+        try {
+          directAccess = JSON.parse(directAccess);
+        } catch (error) {
+          throw new Error(`Invalid staff module access data: ${error.message}`);
+        }
+      }
+      if (!Array.isArray(directAccess)) {
+        throw new Error("Staff module access must be stored as an array");
+      }
+
+      const settingsSubmodules = new Set([
+        "school", "academic", "calendarsettings", "users", "roles",
+        "notices", "integrations", "devices", "backup", "activitylog",
+        "activesessions", "security", "departments", "classrooms",
+        "courses", "rooms", "students", "theme", "profile",
+      ]);
+      const routeAliases = {
+        teachers: "teacher",
+        students: "student",
+        employees: "employee",
+        fee_management: "accounts",
+        fees: "accounts",
+      };
+      const directPermissions = directAccess.map((moduleKey) => {
+        const normalized = String(moduleKey).trim().toLowerCase();
+        if (normalized.startsWith("settings.")) return `${normalized}.view`;
+        if (settingsSubmodules.has(normalized)) {
+          return `settings.${normalized}.view`;
+        }
+        return `${routeAliases[normalized] || normalized}.view`;
+      });
+      const permissions =
+        result.rows[0].authority_mode === "direct_access"
+          ? directPermissions
+          : [...rolePermissions];
+
+      const effectiveModules = new Set();
+      for (const permission of permissions) {
+        const parts = String(permission).toLowerCase().split(".");
+        if (parts.length < 2 || parts[parts.length - 1] !== "view") continue;
+        const permissionModule = parts.slice(0, -1).join(".");
+        let routeModule = permissionModule;
+        if (
+          ["resultformat", "resultsubject"].includes(permissionModule) ||
+          ["settings.resultformat", "settings.resultsubject"].includes(
+            permissionModule,
+          )
+        ) {
+          routeModule = "results";
+        } else if (permissionModule.startsWith("settings.")) {
+          routeModule = "settings";
+        } else if (settingsSubmodules.has(permissionModule)) {
+          routeModule = "settings";
+        } else if (["fee_management", "fees"].includes(permissionModule)) {
+          routeModule = "accounts";
+        }
+        effectiveModules.add(routeModule);
+      }
+      const supportedModules = new Set([
+        "dashboard", "calendar", "attendance", "settings", "teacher",
+        "student", "employee", "results", "result_portal",
+        "daily_reports", "leave_management", "accounts",
+      ]);
+      req.user.permissions = permissions;
+      req.user.roles = roles;
+      req.user.modules = (Array.isArray(req.user.modules) ? req.user.modules : [])
+        .filter((module) => supportedModules.has(module) && effectiveModules.has(module));
+    })();
+  }
+  await req.roleAccessRefresh;
+}
+
 function requirePermission(...requiredPermissions) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (req.user.type === "tenant" || req.user.type === "system_admin")
       return next();
+    try {
+      await refreshStaffRoleAccess(req);
+    } catch (error) {
+      console.error("Failed to refresh staff role permissions:", error);
+      return res.status(503).json({
+        success: false,
+        message: "Unable to verify current role permissions.",
+      });
+    }
     const permissions = Array.isArray(req.user.permissions)
       ? req.user.permissions
       : [];
@@ -172,7 +297,7 @@ function requireSettingsPermission(fallbackModule = null) {
     ["/teachers", "teacher"],
   ];
 
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (req.method === "OPTIONS") return next();
     if (req.user?.type === "tenant" || req.user?.type === "system_admin") {
       return next();
@@ -181,6 +306,15 @@ function requireSettingsPermission(fallbackModule = null) {
       return res
         .status(403)
         .json({ success: false, message: "Settings access denied" });
+    }
+    try {
+      await refreshStaffRoleAccess(req);
+    } catch (error) {
+      console.error("Failed to refresh staff settings permissions:", error);
+      return res.status(503).json({
+        success: false,
+        message: "Unable to verify current role permissions.",
+      });
     }
 
     const requestPath = String(req.path || "/").toLowerCase();
@@ -258,7 +392,16 @@ function requireSettingsPermission(fallbackModule = null) {
  * Middleware to enforce module access for tenant users
  */
 function requireModule(moduleKey) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
+    try {
+      await refreshStaffRoleAccess(req);
+    } catch (error) {
+      console.error("Failed to refresh staff module permissions:", error);
+      return res.status(503).json({
+        success: false,
+        message: "Unable to verify current role permissions.",
+      });
+    }
     const modules = Array.isArray(req.user.modules) ? req.user.modules : [];
     if (!modules.includes(moduleKey)) {
       return res.status(403).json({
@@ -271,9 +414,18 @@ function requireModule(moduleKey) {
 }
 
 function requireAdminOrTenantModule(moduleKey) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (req.user.type === "system_admin") {
       return next();
+    }
+    try {
+      await refreshStaffRoleAccess(req);
+    } catch (error) {
+      console.error("Failed to refresh staff module permissions:", error);
+      return res.status(503).json({
+        success: false,
+        message: "Unable to verify current role permissions.",
+      });
     }
     const modules = Array.isArray(req.user.modules) ? req.user.modules : [];
     if (!modules.includes(moduleKey)) {

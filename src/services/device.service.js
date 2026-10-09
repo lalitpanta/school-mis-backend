@@ -214,7 +214,7 @@ class DeviceService {
         `SELECT DISTINCT u.id, u.first_name, u.last_name FROM tenant_users u
          INNER JOIN user_roles ur ON u.id = ur.user_id
          INNER JOIN roles r ON ur.role_id = r.id
-         WHERE r.role_name = 'teacher'`
+         WHERE r.role_name = 'teacher' AND r.is_active = TRUE`
       );
 
       const enrollmentData = teachersResult.rows.map(teacher => ({

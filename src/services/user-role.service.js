@@ -7,7 +7,15 @@ class UserRoleService {
   assignRolesToUser = async (userId, roleIds, req) => {
     try {
       const pool = req?.tenantPool || require("../config/db");
-      
+      if (!Array.isArray(roleIds)) {
+        throw new Error("roleIds must be an array");
+      }
+      await require("./role.service").validateRoleAssignments(
+        pool,
+        userId,
+        roleIds,
+      );
+
       // Get current user ID for audit trail
       const currentUserId = req?.user?.id;
 
@@ -117,7 +125,7 @@ class UserRoleService {
         JOIN role_permissions rp ON p.id = rp.permission_id
         JOIN roles r ON rp.role_id = r.id
         JOIN user_roles ur ON r.id = ur.role_id
-        WHERE ur.user_id = $1
+        WHERE ur.user_id = $1 AND r.is_active = TRUE
         ORDER BY p.resource, p.action
       `;
       const result = await pool.query(query, [userId]);
@@ -139,7 +147,7 @@ class UserRoleService {
         JOIN role_permissions rp ON p.id = rp.permission_id
         JOIN roles r ON rp.role_id = r.id
         JOIN user_roles ur ON r.id = ur.role_id
-        WHERE ur.user_id = $1 AND p.permission_key = $2
+        WHERE ur.user_id = $1 AND p.permission_key = $2 AND r.is_active = TRUE
       `;
       const result = await pool.query(query, [userId, permissionKey]);
       return result.rows[0]?.has_permission || false;

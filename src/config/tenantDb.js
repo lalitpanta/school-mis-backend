@@ -310,9 +310,12 @@ async function initializeTenantDatabase(tenantId, databaseName) {
         description TEXT,
         is_system BOOLEAN DEFAULT false,
         permissions JSON DEFAULT '[]'::json,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE roles
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 
       -- Permissions table
       CREATE TABLE IF NOT EXISTS permissions (
@@ -465,6 +468,7 @@ async function initializeTenantDatabase(tenantId, databaseName) {
         floor_number INTEGER,
         room_type VARCHAR(100) NOT NULL DEFAULT 'Classroom',
         total_capacity INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW()
       );

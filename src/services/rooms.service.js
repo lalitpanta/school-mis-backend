@@ -17,6 +17,7 @@ const roomsService = {
             floor_number INTEGER,
             room_type VARCHAR(100) NOT NULL DEFAULT 'Classroom',
             total_capacity INTEGER NOT NULL DEFAULT 0,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
           )
@@ -33,6 +34,9 @@ const roomsService = {
       } else {
         await client.query(
           'ALTER TABLE rooms ADD COLUMN IF NOT EXISTS block_id INTEGER',
+        );
+        await client.query(
+          'ALTER TABLE rooms ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE',
         );
         await client.query(
           'CREATE INDEX IF NOT EXISTS idx_rooms_block_id ON rooms(block_id)',
@@ -90,6 +94,7 @@ const roomsService = {
       "floor_number",
       "room_type",
       "total_capacity",
+      "is_active",
     ];
     const fields = [];
     const values = [];

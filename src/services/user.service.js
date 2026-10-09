@@ -269,7 +269,7 @@ const getUsersByRole = async (roleName, req) => {
       FROM tenant_users u
       LEFT JOIN user_roles ur ON u.id = ur.user_id
       LEFT JOIN roles r ON ur.role_id = r.id
-      WHERE r.role_name = $1 AND u.is_active = TRUE
+      WHERE r.role_name = $1 AND r.is_active = TRUE AND u.is_active = TRUE
       ORDER BY u.name NULLS LAST
     `;
     const result = await pool.query(query, [roleName]);
@@ -827,6 +827,11 @@ const assignRolesToUser = async (userId, roleIds, req) => {
     if (!Array.isArray(roleIds)) {
       throw new Error("roleIds must be an array");
     }
+    await require("./role.service").validateRoleAssignments(
+      pool,
+      userId,
+      roleIds,
+    );
 
     // Start transaction
     await pool.query("BEGIN");
@@ -955,7 +960,7 @@ const getUserWithRolesAndPermissions = async (userId, req) => {
       `SELECT DISTINCT r.permissions::text AS permissions
       FROM user_roles ur
       JOIN roles r ON ur.role_id = r.id
-      WHERE ur.user_id = $1`,
+      WHERE ur.user_id = $1 AND r.is_active = TRUE`,
       [userId],
     );
 

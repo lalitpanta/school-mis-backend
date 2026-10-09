@@ -1038,6 +1038,7 @@ async function staffLogin(tenantSlug, email, password, req) {
 
     const tenant = tenantResult.rows[0];
     const tenantPool = getTenantPool(tenant.id, tenant.database_name);
+    await require("./role.service").ensureRoleActiveColumn(tenantPool);
     const tenantDbClient = await tenantPool.connect();
 
     try {
@@ -1054,7 +1055,7 @@ async function staffLogin(tenantSlug, email, password, req) {
           json_agg(json_build_object('id', r.id, 'role_name', r.role_name)) FILTER (WHERE r.id IS NOT NULL) as roles
         FROM tenant_users u
         LEFT JOIN user_roles ur ON u.id = ur.user_id
-        LEFT JOIN roles r ON ur.role_id = r.id
+        LEFT JOIN roles r ON ur.role_id = r.id AND r.is_active = TRUE
         WHERE u.email = $1 AND u.is_active = TRUE
         GROUP BY u.id`,
         [email],
@@ -1137,7 +1138,7 @@ async function staffLogin(tenantSlug, email, password, req) {
         `SELECT r.permissions
         FROM user_roles ur
         JOIN roles r ON ur.role_id = r.id
-        WHERE ur.user_id = $1`,
+        WHERE ur.user_id = $1 AND r.is_active = TRUE`,
         [user.id],
       );
 
